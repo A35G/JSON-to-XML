@@ -1,0 +1,96 @@
+<?php
+
+declare(strict_types=1);
+
+namespace A35G\JsonToXml\Tests;
+
+use A35G\JsonToXml\JsonToXmlConverter;
+use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
+
+final class JsonToXmlConverterTest extends TestCase
+{
+    public function testConvertsSimpleScalarValues(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"nome": "Mario", "eta": 34}');
+
+        $this->assertStringContainsString('<nome>Mario</nome>', $xml);
+        $this->assertStringContainsString('<eta>34</eta>', $xml);
+    }
+
+    public function testAttributesAreSetOnTheOwningElement(): void
+    {
+        $converter = new JsonToXmlConverter('root');
+        $xml = $converter->jsonToXmlString('{"request": {"@code": "", "@typeReq": "ABC"}}');
+
+        $this->assertStringContainsString('code=""', $xml);
+        $this->assertStringContainsString('typeReq="ABC"', $xml);
+    }
+
+    public function testCdataIsAppliedAutomaticallyWhenContentNeedsIt(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"testo": "contiene <tag> e \\"virgolette\\""}');
+
+        $this->assertStringContainsString('<![CDATA[', $xml);
+    }
+
+    public function testTextKeyUsesAutomaticCdataWhenContentNeedsIt(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"numero": {"#text": "contiene <tag>"}}');
+
+        $this->assertStringContainsString('<numero><![CDATA[contiene <tag>]]></numero>', $xml);
+    }
+
+    public function testTextKeyStaysPlainWhenContentDoesNotNeedCdata(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"numero": {"#text": "XX-000000"}}');
+
+        $this->assertStringContainsString('<numero>XX-000000</numero>', $xml);
+        $this->assertStringNotContainsString('CDATA', $xml);
+    }
+
+    public function testMixedContentWithAttributeAndAutomaticCdataText(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"areaCedi": {"@codArea": "XXX", "#text": "contiene <tag>"}}');
+
+        $this->assertStringContainsString('<areaCedi codArea="XXX"><![CDATA[contiene <tag>]]></areaCedi>', $xml);
+    }
+
+    public function testJsonListIsRepeatedWithoutWrapper(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"Nota": [{"Principale": "0"}, {"Principale": "1"}]}');
+
+        $this->assertEquals(2, substr_count($xml, '<Nota>'));
+        $this->assertStringNotContainsString('<item>', $xml);
+    }
+
+    public function testNullValueProducesEmptyElement(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"note": null}');
+
+        $this->assertMatchesRegularExpression('/<note\s*\/>|<note><\/note>/', $xml);
+    }
+
+    public function testInvalidJsonThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $converter = new JsonToXmlConverter('data');
+        $converter->jsonToXmlString('{invalid json}');
+    }
+
+    public function testArrayAsAttributeValueThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $converter = new JsonToXmlConverter('data');
+        $converter->jsonToXmlString('{"nodo": {"@attr": {"non": "valido"}}}');
+    }
+}

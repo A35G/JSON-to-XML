@@ -1,0 +1,34 @@
+{
+    "name": "a35g/json-to-xml",
+    "description": "Converte una stringa JSON in un documento XML valido, con supporto per attributi, CDATA (automatico e forzato) e mixed content.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["json", "xml", "converter", "cdata", "dom"],
+    "authors": [
+        {
+            "name": "A35G"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "ext-dom": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "A35G\\JsonToXml\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "A35G\\JsonToXml\\Tests\\": "tests/"
+        }
+    },
+    "minimum-stability": "stable",
+    "scripts": {
+        "test": "phpunit --colors=always"
+    }
+}
