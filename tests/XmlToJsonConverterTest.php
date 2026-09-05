@@ -74,7 +74,7 @@ final class XmlToJsonConverterTest extends TestCase
     public function testMixedContentWithAttributeAndText(): void
     {
         $converter = new XmlToJsonConverter();
-        $array = $converter->xmlToArray('<areaCedi codArea="XXX"><![CDATA[XX]]></areaCedi>');
+        $array = $converter->xmlToArray('<operatore codArea="XXX"><![CDATA[XX]]></operatore>');
 
         $this->assertSame('XXX', $array['@codArea']);
         $this->assertSame('XX', $array['#text']);
@@ -91,9 +91,9 @@ final class XmlToJsonConverterTest extends TestCase
     public function testEmptyElementWithOnlyAttributesHasNoTextKey(): void
     {
         $converter = new XmlToJsonConverter();
-        $array = $converter->xmlToArray('<data><areaCedi codArea="XXX"/></data>');
+        $array = $converter->xmlToArray('<data><operatore codArea="XXX"/></data>');
 
-        $this->assertSame(['@codArea' => 'XXX'], $array['areaCedi']);
+        $this->assertSame(['@codArea' => 'XXX'], $array['operatore']);
     }
 
     public function testInvalidXmlThrowsException(): void

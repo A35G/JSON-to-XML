@@ -79,10 +79,10 @@ Un valore va in CDATA solo se il contenuto lo richiede (contiene `< > & ' "` o u
 ### Mixed content (attributi + testo)
 
 ```json
-{ "areaCedi": { "@codArea": "XXX", "#text": "contiene <tag>" } }
+{ "operatore": { "@codArea": "XXX", "#text": "contiene <tag>" } }
 ```
 ```xml
-<areaCedi codArea="XXX"><![CDATA[contiene <tag>]]></areaCedi>
+<operatore codArea="XXX"><![CDATA[contiene <tag>]]></operatore>
 ```
 
 ### Liste ripetute senza wrapper
@@ -132,7 +132,7 @@ Convertire XML in JSON è intrinsecamente ambiguo in alcuni casi, quindi il risu
   Così `<Note><Nota>...</Nota></Note>` produce comunque `{"Note": {"Nota": [ {...} ]}}`, evitando che il JSON cambi forma (da oggetto ad array) il giorno in cui quel tag inizia a ripetersi.
 
 - **CDATA vs testo semplice**: `<x>a</x>` e `<x><![CDATA[a]]></x>` producono lo stesso valore JSON `"a"` — l'informazione "era in CDATA" non è recuperabile.
-- **Elemento vuoto**: `<note/>` diventa `null`. Se ha solo attributi (es. `<areaCedi codArea="XXX"/>`) diventa `{"@codArea": "XXX"}`, senza chiave `#text`.
+- **Elemento vuoto**: `<note/>` diventa `null`. Se ha solo attributi (es. `<operatore codArea="XXX"/>`) diventa `{"@codArea": "XXX"}`, senza chiave `#text`.
 - **Commenti e processing instruction** vengono ignorati.
 - Per sicurezza, il parsing XML usa `LIBXML_NONET` (nessun accesso di rete per entità esterne), a mitigazione di attacchi XXE — utile perché l'XML in input potrebbe provenire da fonti non fidate.
 

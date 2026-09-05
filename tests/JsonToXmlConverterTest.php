@@ -56,9 +56,9 @@ final class JsonToXmlConverterTest extends TestCase
     public function testMixedContentWithAttributeAndAutomaticCdataText(): void
     {
         $converter = new JsonToXmlConverter('data');
-        $xml = $converter->jsonToXmlString('{"areaCedi": {"@codArea": "XXX", "#text": "contiene <tag>"}}');
+        $xml = $converter->jsonToXmlString('{"operatore": {"@codArea": "XXX", "#text": "contiene <tag>"}}');
 
-        $this->assertStringContainsString('<areaCedi codArea="XXX"><![CDATA[contiene <tag>]]></areaCedi>', $xml);
+        $this->assertStringContainsString('<operatore codArea="XXX"><![CDATA[contiene <tag>]]></operatore>', $xml);
     }
 
     public function testJsonListIsRepeatedWithoutWrapper(): void
