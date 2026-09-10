@@ -1,6 +1,6 @@
 {
     "name": "a35g/json-to-xml",
-    "description": "Converte una stringa JSON in un documento XML valido, con supporto per attributi, CDATA (automatico e forzato) e mixed content.",
+    "description": "Converte JSON e XML in entrambe le direzioni, con supporto per attributi, CDATA automatico e mixed content.",
     "type": "library",
     "license": "MIT",
     "keywords": ["json", "xml", "converter", "cdata", "dom"],

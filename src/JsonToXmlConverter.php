@@ -49,7 +49,8 @@ class JsonToXmlConverter
      *                              viene invece ripetuto il nome della chiave stessa.
      * @param bool   $useCdata      Se true, avvolge automaticamente in CDATA i valori
      *                              che contengono caratteri speciali XML (< > & ' ") o newline.
-     *                              Non ha effetto sulla chiave "#cdata", che forza sempre il CDATA.
+     *                              Se false, il testo viene serializzato utilizzando la normale
+     *                              codifica di escape XML.
      */
     public function __construct(string $rootName = 'data', string $itemNodeName = 'item', bool $useCdata = true)
     {

@@ -93,4 +93,24 @@ final class JsonToXmlConverterTest extends TestCase
         $converter = new JsonToXmlConverter('data');
         $converter->jsonToXmlString('{"nodo": {"@attr": {"non": "valido"}}}');
     }
+
+    public function testCdataCanBeDisabled(): void
+    {
+        $converter = new JsonToXmlConverter(rootName: 'data', itemNodeName: 'item', useCdata: false);
+
+        $xml = $converter->jsonToXmlString('{"testo": "ciao <mondo> & amici"}');
+
+        $this->assertStringNotContainsString('<![CDATA[', $xml);
+        $this->assertStringContainsString('ciao &lt;mondo&gt; &amp; amici', $xml);
+    }
+
+    public function testUnicodeCharactersArePreserved(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+
+        $xml = $converter->jsonToXmlString('{"testo": "Città € 日本語 🚀"}');
+
+        $this->assertStringContainsString('<testo>Città € 日本語 🚀</testo>', $xml);
+    }
+
 }

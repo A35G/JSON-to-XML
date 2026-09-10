@@ -120,4 +120,36 @@ final class XmlToJsonConverterTest extends TestCase
         $this->assertJson($json);
         $this->assertSame(['nome' => 'Mario'], json_decode($json, true));
     }
+
+    public function testUnicodeCharactersArePreserved(): void
+    {
+        $converter = new XmlToJsonConverter();
+
+        $result = $converter->xmlToArray('<root><testo>Città € 日本語 🚀</testo></root>');
+
+        $this->assertSame('Città € 日本語 🚀', $result['testo']);
+    }
+
+    public function testMixedContentWithChildElementIsPreserved(): void
+    {
+        $converter = new XmlToJsonConverter();
+
+        $result = $converter->xmlToArray('<root>prima<child>centro</child>dopo</root>');
+
+        $this->assertSame('primadopo', $result['#text']);
+
+        $this->assertSame('centro', $result['child']);
+    }
+
+    public function testSetForceArrayTagsUpdatesConfiguration(): void
+    {
+        $converter = new XmlToJsonConverter();
+
+        $converter->setForceArrayTags(['item']);
+
+        $result = $converter->xmlToArray('<root><item>one</item></root>');
+
+        $this->assertSame(['one'], $result['item']);
+    }
+
 }

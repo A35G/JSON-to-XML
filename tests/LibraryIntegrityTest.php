@@ -235,11 +235,11 @@ final class LibraryIntegrityTest extends TestCase
             $tempFile = $method->invoke($converter);
 
             try {
-                // realpath() normalizza eventuali symlink (es. su macOS
-                // /var è un symlink verso /private/var): tempnam() restituisce
-                // il path risolto, quindi un confronto di stringa esatto tra
-                // $customDir e dirname($tempFile) fallirebbe pur essendo
-                // effettivamente la stessa directory.
+                // realpath() normalizza sia i symlink (es. su macOS /var è un
+                // symlink verso /private/var) sia i separatori di percorso
+                // (Windows usa "\" invece di "/"): un confronto di stringa
+                // esatto tra $customDir e dirname($tempFile) fallirebbe pur
+                // trattandosi effettivamente della stessa directory.
                 $this->assertSame(
                     realpath($customDir),
                     realpath(dirname($tempFile)),
@@ -255,6 +255,18 @@ final class LibraryIntegrityTest extends TestCase
 
     public function testTempFilenameThrowsWhenTempDirIsNotWritable(): void
     {
+        // Su Windows (NTFS) il parametro $mode di mkdir() non applica permessi
+        // POSIX in stile Unix: la directory risulterebbe comunque scrivibile
+        // e il test darebbe un falso negativo, non a causa di un bug della
+        // libreria ma di una limitazione della piattaforma nel simulare
+        // questo scenario. Il comportamento della libreria resta verificato
+        // su Linux/macOS, dove il test è affidabile.
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->markTestSkipped(
+                'mkdir() con permessi non scrivibili non è simulabile in modo affidabile su Windows.'
+            );
+        }
+
         $unwritableDir = sys_get_temp_dir() . '/json_to_xml_unwritable_' . uniqid();
         mkdir($unwritableDir, 0400);
 
@@ -364,4 +376,57 @@ final class LibraryIntegrityTest extends TestCase
 
         $this->assertStringContainsString('<value>42</value>', $xml);
     }
+
+    public function testJsonToXmlFileWritesExpectedXml(): void
+    {
+        $outputFile = tempnam(sys_get_temp_dir(), 'json_to_xml_');
+
+        try {
+            $converter = new JsonToXmlConverter('data');
+
+            $json = '{"nome": "Mario", "eta": 30}';
+
+            $converter->jsonToXmlFile($json, $outputFile);
+
+            $this->assertFileExists($outputFile);
+
+            $xml = file_get_contents($outputFile);
+
+            $this->assertIsString($xml);
+            $this->assertStringContainsString('<nome>Mario</nome>', $xml);
+            $this->assertStringContainsString('<eta>30</eta>', $xml);
+        } finally {
+            @unlink($outputFile);
+        }
+    }
+
+    public function testXmlFileToJsonFileWritesExpectedJson(): void
+    {
+        $inputFile = tempnam(sys_get_temp_dir(), 'xml_input_');
+        $outputFile = tempnam(sys_get_temp_dir(), 'xml_output_');
+
+        try {
+            file_put_contents($inputFile, '<root><nome>Mario</nome><eta>30</eta></root>');
+
+            $converter = new XmlToJsonConverter();
+
+            $converter->xmlFileToJsonFile($inputFile, $outputFile);
+
+            $this->assertFileExists($outputFile);
+
+            $json = file_get_contents($outputFile);
+
+            $this->assertIsString($json);
+
+            $decoded = json_decode($json, true);
+
+            $this->assertSame('Mario', $decoded['nome']);
+
+            $this->assertSame('30', $decoded['eta']);
+        } finally {
+            @unlink($inputFile);
+            @unlink($outputFile);
+        }
+    }
+
 }
