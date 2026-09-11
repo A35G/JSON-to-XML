@@ -4,4 +4,4 @@ composer.lock
 .idea/
 .DS_Store
 *.log
-/JSON-to-XML.wiki/
+/JSON-to-XML.wiki/'.phpunit.result.cache' 
