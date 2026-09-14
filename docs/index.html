@@ -1,118 +1,679 @@
-# How to convert JSON to XML in PHP
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>a35g/json-to-xml — live demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #EEF0EC;
+    --panel: #FAF9F6;
+    --ink: #22261F;
+    --ink-soft: #565C4F;
+    --rule: #D3D6CC;
+    --accent: #3457D5;
+    --accent-soft: #E6EBFB;
+    --warm: #B5651D;
+    --warm-soft: #F5E9DC;
+    --error: #B3261E;
+    --error-soft: #F7E4E1;
+    --radius: 3px;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a{ color: var(--accent); }
+  .wrap{
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 28px 24px 64px;
+  }
+  .topbar{
+    display:flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 40px;
+  }
+  .topbar .name{ color: var(--ink-soft); }
+  .topbar code{
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    padding: 3px 8px;
+    color: var(--ink);
+  }
+  h1{
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 500;
+    font-size: 40px;
+    line-height: 1.18;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+    max-width: 14ch;
+  }
+  h1 em{
+    font-style: italic;
+    color: var(--accent);
+  }
+  .sub{
+    color: var(--ink-soft);
+    margin: 0 0 28px;
+    max-width: 60ch;
+  }
+  .toggle{
+    display: inline-flex;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .toggle button{
+    font-family: inherit;
+    font-size: 13px;
+    padding: 9px 16px;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .toggle button + button{ border-left: 1px solid var(--ink); }
+  .toggle button[aria-pressed="true"]{
+    background: var(--ink);
+    color: var(--panel);
+  }
+  .options{
+    display:flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 18px;
+    color: var(--ink-soft);
+  }
+  .options label{ display:flex; align-items:center; gap:6px; }
+  .options input[type="text"]{
+    font-family: inherit;
+    font-size: 13px;
+    width: 90px;
+    padding: 5px 7px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .options input[type="text"].wide{ width: 160px; }
+  .options input[type="checkbox"]{ accent-color: var(--accent); }
 
-If you've ended up here, you probably already know *why* you need this: some API, some legacy SOAP endpoint, or some client integration only speaks XML, while everything in your PHP app — your database layer, your other APIs, your frontend — speaks JSON. So now you need a bridge.
+  .examples{
+    display:flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .examples button{
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 11px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .examples button:hover{ border-color: var(--accent); color: var(--accent); }
 
-This guide walks through the straightforward way to do it, the problems that show up the moment your JSON isn't trivial, and a small library that handles those problems for you.
+  .panels{
+    display: grid;
+    grid-template-columns: 1fr 40px 1fr;
+    align-items: stretch;
+    gap: 0;
+  }
+  .panel{
+    border: 1px solid var(--rule);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .panel-head{
+    display:flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .panel-head button{
+    font-family: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .panel-head button:hover{ border-color: var(--accent); color: var(--accent); }
+  textarea, .output{
+    flex: 1;
+    min-height: 300px;
+    padding: 14px;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    resize: vertical;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: auto;
+  }
+  textarea:focus, .output:focus{
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .output{ margin: 0; }
+  .swap{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .swap button{
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--ink);
+    background: var(--panel);
+    color: var(--ink);
+    font-size: 16px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+  .swap button:hover{ background: var(--ink); color: var(--panel); }
+  .swap button.spin{ transform: rotate(180deg); }
 
-## The naive approach
+  .status{
+    margin-top: 14px;
+    min-height: 20px;
+    font-size: 12.5px;
+  }
+  .status.error{ color: var(--error); }
+  .status.ok{ color: var(--ink-soft); }
 
-For a flat JSON object, converting to XML looks almost too easy:
+  .badge{
+    display:inline-block;
+    background: var(--warm-soft);
+    color: var(--warm);
+    border-radius: var(--radius);
+    padding: 1px 6px;
+    font-size: 11px;
+    margin-right: 6px;
+  }
 
-```php
-$data = json_decode($jsonString, true);
+  footer{
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-soft);
+    font-size: 12.5px;
+    max-width: 68ch;
+  }
+  footer p{ margin: 0 0 10px; }
 
-$xml = new SimpleXMLElement('<root/>');
+  @media (max-width: 720px){
+    .panels{ grid-template-columns: 1fr; }
+    .swap{ padding: 10px 0; }
+    .swap button.spin{ transform: rotate(90deg); }
+    h1{ font-size: 32px; max-width: none; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .swap button{ transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
 
-function arrayToXml(array $data, SimpleXMLElement $xml): void
-{
-    foreach ($data as $key => $value) {
-        if (is_array($value)) {
-            $child = $xml->addChild($key);
-            arrayToXml($value, $child);
-        } else {
-            $xml->addChild($key, htmlspecialchars((string) $value));
-        }
+  <div class="topbar">
+    <span class="name">a35g/json-to-xml</span>
+    <code>composer require a35g/json-to-xml</code>
+  </div>
+
+  <h1>JSON becomes XML.<br>XML becomes <em>JSON.</em></h1>
+  <p class="sub">Attributes, mixed content, repeated elements without a wrapper, CDATA applied only where it's needed. Type or pick an example below — it converts as you go.</p>
+
+  <div class="toggle" role="group" aria-label="Direzione di conversione">
+    <button id="btnJ2X" type="button" aria-pressed="true">JSON → XML</button>
+    <button id="btnX2J" type="button" aria-pressed="false">XML → JSON</button>
+  </div>
+
+  <div id="optsJ2X" class="options">
+    <label>root <input type="text" id="optRoot" value="request"></label>
+    <label>item <input type="text" id="optItem" value="item"></label>
+    <label><input type="checkbox" id="optCdata" checked> automatic CDATA</label>
+  </div>
+
+  <div id="optsX2J" class="options" style="display:none;">
+    <label>force-array tags <input type="text" class="wide" id="optForce" placeholder="es. Nota, item"></label>
+  </div>
+
+  <div class="examples" id="examples"></div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-head">
+        <span id="inputLabel">JSON input</span>
+      </div>
+      <textarea id="input" spellcheck="false"></textarea>
+    </div>
+    <div class="swap">
+      <button id="swapBtn" type="button" title="Inverti direzione" aria-label="Inverti direzione">⇄</button>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <span id="outputLabel">XML output</span>
+        <button id="copyBtn" type="button">Copy</button>
+      </div>
+      <pre class="output" id="output" tabindex="0"></pre>
+    </div>
+  </div>
+
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+
+  <footer>
+    <p>Questa demo reimplementa le regole di conversione in JavaScript, per funzionare all'istante senza backend. La libreria PHP reale (<code>a35g/json-to-xml</code>) segue le stesse convenzioni — <code>@attributo</code>, <code>#text</code>, liste senza wrapper — ma l'indentazione e alcuni casi limite del formato XML possono differire leggermente da questo output.</p>
+    <p><a href="https://github.com/A35G/json-to-xml" target="_blank" rel="noopener">Vedi il codice sorgente e la documentazione completa →</a></p>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- shared helpers ----------
+
+  function sanitizeTagName(key){
+    key = String(key).replace(/[^a-zA-Z0-9_\-.]/g, '_');
+    if (key === '' || /^[0-9\-.]/.test(key)) key = 'n_' + key;
+    if (/^xml/i.test(key)) key = '_' + key;
+    return key;
+  }
+
+  function needsCdata(value){
+    return /[<>&'"]/.test(value) || value.indexOf('\n') !== -1;
+  }
+
+  function stringifyValue(value){
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value);
+  }
+
+  function escapeText(str){
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function escapeAttr(str){
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ---------- JSON -> XML ----------
+
+  function jsonToXml(jsonString, rootName, itemNodeName, useCdata){
+    var data;
+    try {
+      data = JSON.parse(jsonString);
+    } catch (e) {
+      throw new Error('JSON non valido: ' + e.message);
     }
-}
+    if (data === null || typeof data !== 'object') {
+      data = { value: data };
+    }
+    itemNodeName = sanitizeTagName(itemNodeName || 'item');
+    var rootTag = sanitizeTagName(rootName || 'data');
 
-arrayToXml($data, $xml);
+    var built = buildNode(data, itemNodeName, useCdata, 0);
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + wrapTag(rootTag, built, 0);
+  }
 
-echo $xml->asXML();
-```
+  // Renders the *content* (attrs + inner) for a node whose data is `value`.
+  // Returns { attrs: [ 'name="val"', ... ], inline: 'text'|null, children: [ 'lineA', 'lineB', ... ]|null, empty: bool }
+  function buildContent(value, itemNodeName, useCdata, depth){
+    if (value === null){
+      return { attrs: [], inline: null, children: null, empty: true };
+    }
+    if (Array.isArray(value)) {
+      // Should not normally reach here directly (arrays are expanded by the caller),
+      // but handle defensively by treating it like an object with numeric keys.
+      value = Object.assign({}, value);
+    }
+    if (typeof value !== 'object'){
+      var s = stringifyValue(value);
+      var cdata = useCdata && needsCdata(s);
+      return { attrs: [], inline: { text: s, cdata: cdata }, children: null, empty: false };
+    }
 
-For something like `{"nome": "Mario", "eta": 34}` this works fine. The trouble starts as soon as real-world JSON shows up.
+    var attrs = [];
+    var childLines = [];
+    var inline = null;
 
-## Where the naive approach breaks
+    var keys = Object.keys(value);
 
-**Repeated elements.** JSON has no native way to say "repeat this tag." A list like:
+    // pass 1: attributes
+    keys.forEach(function(key){
+      if (key.charAt(0) === '@') {
+        var v = value[key];
+        if (v !== null && typeof v === 'object') {
+          throw new Error('L\'attributo "' + key + '" non può avere un array/oggetto come valore.');
+        }
+        var attrName = sanitizeTagName(key.slice(1));
+        attrs.push(attrName + '="' + escapeAttr(stringifyValue(v)) + '"');
+      }
+    });
 
-```json
-{ "Nota": [{"Principale": "0"}, {"Principale": "1"}] }
-```
+    // pass 2: text, lists, children
+    keys.forEach(function(key){
+      if (key.charAt(0) === '@') return;
 
-needs to become two sibling `<Nota>` elements, not one `<Nota>` containing an array-looking mess, and not a `<Nota><item>...</item><item>...</item></Nota>` wrapper that nobody asked for. The recursive function above doesn't know the difference between an indexed list and an associative array — you have to write that check yourself, and it's easy to get subtly wrong (empty arrays, lists of scalars, lists of objects all need slightly different handling).
+      if (key === '#text'){
+        var tv = value[key];
+        if (tv === null || tv === undefined) return;
+        if (typeof tv === 'object') throw new Error('La chiave "#text" non può avere un array come valore.');
+        var ts = stringifyValue(tv);
+        inline = { text: ts, cdata: useCdata && needsCdata(ts) };
+        return;
+      }
 
-**Attributes.** XML has a whole content model — `<request type="ABC">` — that JSON simply doesn't have a convention for. You need to invent one (usually a prefixed key like `@type`) and then handle it as a special case in your recursion, separately from child elements, and validate that nobody tries to put an array where an attribute value should be.
+      var isNumericKey = /^\d+$/.test(key);
+      var nodeName = isNumericKey ? itemNodeName : sanitizeTagName(key);
+      var val = value[key];
 
-**Special characters.** `htmlspecialchars()` on every value works, but it also means a field like `"nota": "Il valore è < 10"` comes out escaped as `&lt; 10` — technically valid XML, but often not what a downstream consumer expects when the content itself looks like markup. Sometimes you actually want `<![CDATA[...]]>` instead, and deciding *when* automatically (only when the content actually needs it) is more logic than it looks.
+      if (Array.isArray(val)){
+        val.forEach(function(item){
+          if (item !== null && typeof item === 'object'){
+            var sub = buildContent(item, itemNodeName, useCdata, depth + 1);
+            childLines.push(wrapTag(nodeName, sub, depth + 1));
+          } else if (item === null || item === undefined){
+            childLines.push('  '.repeat(depth + 1) + '<' + nodeName + '/>');
+          } else {
+            var istr = stringifyValue(item);
+            childLines.push(leafLine(nodeName, istr, useCdata && needsCdata(istr), depth + 1));
+          }
+        });
+        return;
+      }
 
-**Mixed content.** What about a node that needs both an attribute *and* direct text, like `<operatore codArea="XXX">testo</operatore>`? That's a case the "everything is either a scalar or a nested array" model doesn't represent at all.
+      if (val !== null && typeof val === 'object'){
+        var subC = buildContent(val, itemNodeName, useCdata, depth + 1);
+        childLines.push(wrapTag(nodeName, subC, depth + 1));
+        return;
+      }
 
-None of these are exotic — they show up in the first real payload you throw at this. At that point you're maintaining a small, undertested XML serializer instead of shipping a feature.
+      if (val === null || val === undefined){
+        childLines.push('  '.repeat(depth + 1) + '<' + nodeName + '/>');
+        return;
+      }
 
-## A library that handles the edge cases
+      var str = stringifyValue(val);
+      childLines.push(leafLine(nodeName, str, useCdata && needsCdata(str), depth + 1));
+    });
 
-[`a35g/json-to-xml`](https://github.com/A35G/json-to-xml) is a small, dependency-free PHP library built specifically around these conventions:
+    return {
+      attrs: attrs,
+      inline: childLines.length === 0 ? inline : null,
+      children: childLines.length > 0 ? childLines : null,
+      empty: attrs.length === 0 && inline === null && childLines.length === 0
+    };
+  }
 
-```bash
-composer require a35g/json-to-xml
-```
+  function leafLine(tagName, text, cdata, depth){
+    var indent = '  '.repeat(depth);
+    var body = cdata ? ('<![CDATA[' + text + ']]>') : escapeText(text);
+    return indent + '<' + tagName + '>' + body + '</' + tagName + '>';
+  }
 
-```php
-use A35G\JsonToXml\JsonToXmlConverter;
+  function wrapTag(tagName, content, depth){
+    var indent = '  '.repeat(depth);
+    var attrStr = content.attrs.length ? (' ' + content.attrs.join(' ')) : '';
 
-$converter = new JsonToXmlConverter(rootName: 'request');
+    if (content.empty){
+      return indent + '<' + tagName + attrStr + '/>';
+    }
+    if (content.inline){
+      var body = content.inline.cdata ? ('<![CDATA[' + content.inline.text + ']]>') : escapeText(content.inline.text);
+      return indent + '<' + tagName + attrStr + '>' + body + '</' + tagName + '>';
+    }
+    var lines = [];
+    lines.push(indent + '<' + tagName + attrStr + '>');
+    if (content.children) lines = lines.concat(content.children);
+    lines.push(indent + '</' + tagName + '>');
+    return lines.join('\n');
+  }
 
-$xml = $converter->jsonToXmlString('{
-    "@type": "ABC",
-    "cliente": "Mario Rossi",
-    "note": [
-        {"#text": "Prima nota"},
-        {"#text": "Seconda nota"}
+  // patch buildNode to call buildContent (kept as thin wrapper for clarity)
+  function buildNode(value, itemNodeName, useCdata, depth){
+    return buildContent(value, itemNodeName, useCdata, depth);
+  }
+
+  // ---------- XML -> JSON ----------
+
+  function xmlToJson(xmlString, forceArrayTags){
+    if (xmlString.trim() === '') throw new Error('La stringa XML è vuota.');
+
+    var parser = new DOMParser();
+    var dom = parser.parseFromString(xmlString, 'application/xml');
+    var errNode = dom.querySelector('parsererror');
+    if (errNode) {
+      var msg = errNode.textContent.trim().split('\n')[0];
+      throw new Error('XML non valido: ' + msg);
+    }
+
+    var root = dom.documentElement;
+    if (!root || root.nodeName === 'parsererror') {
+      throw new Error('Il documento XML non contiene un elemento radice.');
+    }
+
+    function elementToValue(el){
+      var result = {};
+      Array.prototype.forEach.call(el.attributes || [], function(attr){
+        result['@' + attr.name] = attr.value;
+      });
+
+      var childElements = [];
+      var textParts = [];
+      Array.prototype.forEach.call(el.childNodes, function(node){
+        if (node.nodeType === 1){ childElements.push(node); }
+        else if (node.nodeType === 3 || node.nodeType === 4){ textParts.push(node.nodeValue); }
+      });
+
+      var textContent = textParts.join('');
+      var hasMeaningfulText = textContent.trim() !== '';
+
+      if (childElements.length === 0){
+        if (Object.keys(result).length === 0){
+          return hasMeaningfulText ? textContent : null;
+        }
+        if (hasMeaningfulText) result['#text'] = textContent;
+        return result;
+      }
+
+      if (hasMeaningfulText) result['#text'] = textContent;
+
+      var grouped = {};
+      var order = [];
+      childElements.forEach(function(child){
+        var tag = child.nodeName;
+        if (!grouped[tag]){ grouped[tag] = []; order.push(tag); }
+        grouped[tag].push(elementToValue(child));
+      });
+
+      order.forEach(function(tag){
+        var values = grouped[tag];
+        var isRepeated = values.length > 1;
+        var isForced = forceArrayTags.indexOf(tag) !== -1;
+        result[tag] = (isRepeated || isForced) ? values : values[0];
+      });
+
+      return result;
+    }
+
+    var value = elementToValue(root);
+    var out = (value !== null && typeof value === 'object' && !Array.isArray(value)) ? value : { '#text': value };
+    return JSON.stringify(out, null, 2);
+  }
+
+  // ---------- UI wiring ----------
+
+  var mode = 'j2x';
+  var $ = function(id){ return document.getElementById(id); };
+
+  var input = $('input'), output = $('output'), status = $('status');
+  var inputLabel = $('inputLabel'), outputLabel = $('outputLabel');
+  var optsJ2X = $('optsJ2X'), optsX2J = $('optsX2J');
+  var optRoot = $('optRoot'), optItem = $('optItem'), optCdata = $('optCdata'), optForce = $('optForce');
+  var btnJ2X = $('btnJ2X'), btnX2J = $('btnX2J'), swapBtn = $('swapBtn'), copyBtn = $('copyBtn');
+
+  var EXAMPLES = {
+    j2x: [
+      { label: 'attributi + liste', value: JSON.stringify({
+          request: { '@type': 'ABC', cliente: 'Mario Rossi',
+            note: [ {'#text': 'Prima nota'}, {'#text': 'Seconda nota'} ] }
+        }, null, 2) },
+      { label: 'mixed content + CDATA', value: JSON.stringify({
+          operatore: { '@codArea': 'XXX', '#text': 'contiene <tag>' }
+        }, null, 2) },
+      { label: 'valore null', value: JSON.stringify({ nome: 'Mario', note: null }, null, 2) },
+      { label: 'booleani', value: JSON.stringify({ attivo: true, eliminato: false }, null, 2) }
+    ],
+    x2j: [
+      { label: 'attributi + liste', value:
+'<request type="ABC">\n  <cliente>Mario Rossi</cliente>\n  <note>Prima nota</note>\n  <note>Seconda nota</note>\n</request>' },
+      { label: 'elemento singolo (Nota)', value:
+'<Note>\n  <Nota><Principale>0</Principale></Nota>\n</Note>' },
+      { label: 'elemento vuoto', value:
+'<data>\n  <nome>Mario</nome>\n  <note/>\n</data>' }
     ]
-}');
-```
+  };
 
-produces:
+  function renderExamples(){
+    var container = $('examples');
+    container.innerHTML = '';
+    EXAMPLES[mode].forEach(function(ex){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = ex.label;
+      btn.addEventListener('click', function(){
+        input.value = ex.value;
+        convert();
+      });
+      container.appendChild(btn);
+    });
+  }
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<request type="ABC">
-  <cliente>Mario Rossi</cliente>
-  <note>Prima nota</note>
-  <note>Seconda nota</note>
-</request>
-```
+  function setMode(newMode){
+    mode = newMode;
+    btnJ2X.setAttribute('aria-pressed', String(mode === 'j2x'));
+    btnX2J.setAttribute('aria-pressed', String(mode === 'x2j'));
+    optsJ2X.style.display = mode === 'j2x' ? 'flex' : 'none';
+    optsX2J.style.display = mode === 'x2j' ? 'flex' : 'none';
+    inputLabel.textContent = mode === 'j2x' ? 'JSON input' : 'XML input';
+    outputLabel.textContent = mode === 'j2x' ? 'XML output' : 'JSON output';
+    renderExamples();
+  }
 
-One call. No manual recursion, no wrapper element around the repeated `note` nodes, no `htmlspecialchars` calls scattered around. The conventions are consistent and documented:
+  function convert(){
+    var val = input.value;
+    if (val.trim() === ''){
+      output.textContent = '';
+      status.textContent = '';
+      status.className = 'status';
+      return;
+    }
+    try {
+      var result;
+      if (mode === 'j2x'){
+        result = jsonToXml(val, optRoot.value, optItem.value, optCdata.checked);
+      } else {
+        var forceTags = (optForce.value || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+        result = xmlToJson(val, forceTags);
+      }
+      output.textContent = result;
+      status.textContent = '';
+      status.className = 'status';
+    } catch (e) {
+      output.textContent = '';
+      status.textContent = e.message;
+      status.className = 'status error';
+    }
+  }
 
-| JSON | XML |
-|---|---|
-| `"name": "value"` | child element |
-| `"@name": "value"` | attribute on the current node |
-| `"#text": "value"` | direct text content |
-| `"name": [ {...}, {...} ]` | `<name>` repeated once per element, no wrapper |
+  var debounceTimer = null;
+  function scheduleConvert(){
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(convert, 120);
+  }
 
-Special characters are handled automatically too — CDATA is applied only when the content actually needs it (a value containing `<`, `>`, `&`, quotes, or a newline), and can be turned off entirely if you'd rather always use standard XML escaping:
+  input.addEventListener('input', scheduleConvert);
+  [optRoot, optItem, optForce].forEach(function(el){ el.addEventListener('input', scheduleConvert); });
+  optCdata.addEventListener('change', convert);
 
-```php
-$converter = new JsonToXmlConverter(rootName: 'root', useCdata: false);
-```
+  btnJ2X.addEventListener('click', function(){
+    if (mode === 'j2x') return;
+    setMode('j2x');
+    input.value = EXAMPLES.j2x[0].value;
+    convert();
+  });
+  btnX2J.addEventListener('click', function(){
+    if (mode === 'x2j') return;
+    setMode('x2j');
+    input.value = EXAMPLES.x2j[0].value;
+    convert();
+  });
 
-If you'd rather write straight to a file, or stream the XML directly as an HTTP response, both are one-liners:
+  swapBtn.addEventListener('click', function(){
+    swapBtn.classList.toggle('spin');
+    var hasCleanOutput = output.textContent && status.className === 'status';
+    var carry = hasCleanOutput ? output.textContent : null;
+    if (mode === 'j2x'){
+      setMode('x2j');
+      input.value = carry || EXAMPLES.x2j[0].value;
+    } else {
+      setMode('j2x');
+      input.value = carry || EXAMPLES.j2x[0].value;
+    }
+    convert();
+  });
 
-```php
-$converter->jsonToXmlFile($jsonString, 'output.xml');
+  copyBtn.addEventListener('click', function(){
+    if (!output.textContent) return;
+    navigator.clipboard.writeText(output.textContent).then(function(){
+      var original = copyBtn.textContent;
+      copyBtn.textContent = 'Copied';
+      setTimeout(function(){ copyBtn.textContent = original; }, 1200);
+    });
+  });
 
-// or, e.g. inside a controller action:
-header('Content-Type: application/xml');
-$converter->jsonToXmlStdOut($jsonString);
-```
+  // init
+  setMode('j2x');
+  input.value = EXAMPLES.j2x[0].value;
+  convert();
 
-## What about going back the other way?
-
-If you also need XML → JSON — say, you're consuming a third-party XML API and want to work with it as a normal PHP array — the same package ships `XmlToJsonConverter`, using the identical `@attribute` / `#text` / repeated-element conventions in reverse, plus built-in protection against XXE attacks when parsing XML from untrusted sources. That's a big enough topic on its own to get its own article — including the one case that genuinely can't be made symmetric: telling the converter that a tag should *always* come back as a list, even when there's only one of it.
-
-## Takeaway
-
-Converting a flat JSON object to XML is a five-line function. Converting *real* JSON — with lists, attributes, and mixed content — into XML that a strict downstream consumer will actually accept is a small library's worth of edge cases. If you're about to write that recursive function yourself, it's worth the thirty seconds of `composer require` first.
+})();
+</script>
+</body>
+</html>
