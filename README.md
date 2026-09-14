@@ -6,6 +6,10 @@
 
 </div>
 
+<p align="center">
+    <a href="https://a35g.github.io/JSON-to-XML/"><strong>Try the live demo →</strong></a>
+</p>
+
 PHP library to convert a JSON string into a valid XML document (and vice versa), with support for attributes, automatic CDATA, and mixed content.
  
 ## Why this library?
