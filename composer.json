@@ -1,9 +1,22 @@
 {
     "name": "a35g/json-to-xml",
-    "description": "Converte JSON e XML in entrambe le direzioni, con supporto per attributi, CDATA automatico e mixed content.",
+    "description": "Lightweight PHP JSON <-> XML converter with attributes, mixed content, automatic CDATA, repeated elements and XXE-safe parsing.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["json", "xml", "converter", "cdata", "dom"],
+    "keywords": [
+        "php",
+        "composer",
+        "json",
+        "xml",
+        "json-to-xml",
+        "xml-to-json",
+        "converter",
+        "cdata",
+        "mixed-content",
+        "xml-attributes",
+        "dom",
+        "xxe-protection"
+    ],
     "authors": [
         {
             "name": "A35G"

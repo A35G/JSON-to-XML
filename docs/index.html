@@ -1,0 +1,118 @@
+# How to convert JSON to XML in PHP
+
+If you've ended up here, you probably already know *why* you need this: some API, some legacy SOAP endpoint, or some client integration only speaks XML, while everything in your PHP app — your database layer, your other APIs, your frontend — speaks JSON. So now you need a bridge.
+
+This guide walks through the straightforward way to do it, the problems that show up the moment your JSON isn't trivial, and a small library that handles those problems for you.
+
+## The naive approach
+
+For a flat JSON object, converting to XML looks almost too easy:
+
+```php
+$data = json_decode($jsonString, true);
+
+$xml = new SimpleXMLElement('<root/>');
+
+function arrayToXml(array $data, SimpleXMLElement $xml): void
+{
+    foreach ($data as $key => $value) {
+        if (is_array($value)) {
+            $child = $xml->addChild($key);
+            arrayToXml($value, $child);
+        } else {
+            $xml->addChild($key, htmlspecialchars((string) $value));
+        }
+    }
+}
+
+arrayToXml($data, $xml);
+
+echo $xml->asXML();
+```
+
+For something like `{"nome": "Mario", "eta": 34}` this works fine. The trouble starts as soon as real-world JSON shows up.
+
+## Where the naive approach breaks
+
+**Repeated elements.** JSON has no native way to say "repeat this tag." A list like:
+
+```json
+{ "Nota": [{"Principale": "0"}, {"Principale": "1"}] }
+```
+
+needs to become two sibling `<Nota>` elements, not one `<Nota>` containing an array-looking mess, and not a `<Nota><item>...</item><item>...</item></Nota>` wrapper that nobody asked for. The recursive function above doesn't know the difference between an indexed list and an associative array — you have to write that check yourself, and it's easy to get subtly wrong (empty arrays, lists of scalars, lists of objects all need slightly different handling).
+
+**Attributes.** XML has a whole content model — `<request type="ABC">` — that JSON simply doesn't have a convention for. You need to invent one (usually a prefixed key like `@type`) and then handle it as a special case in your recursion, separately from child elements, and validate that nobody tries to put an array where an attribute value should be.
+
+**Special characters.** `htmlspecialchars()` on every value works, but it also means a field like `"nota": "Il valore è < 10"` comes out escaped as `&lt; 10` — technically valid XML, but often not what a downstream consumer expects when the content itself looks like markup. Sometimes you actually want `<![CDATA[...]]>` instead, and deciding *when* automatically (only when the content actually needs it) is more logic than it looks.
+
+**Mixed content.** What about a node that needs both an attribute *and* direct text, like `<operatore codArea="XXX">testo</operatore>`? That's a case the "everything is either a scalar or a nested array" model doesn't represent at all.
+
+None of these are exotic — they show up in the first real payload you throw at this. At that point you're maintaining a small, undertested XML serializer instead of shipping a feature.
+
+## A library that handles the edge cases
+
+[`a35g/json-to-xml`](https://github.com/A35G/json-to-xml) is a small, dependency-free PHP library built specifically around these conventions:
+
+```bash
+composer require a35g/json-to-xml
+```
+
+```php
+use A35G\JsonToXml\JsonToXmlConverter;
+
+$converter = new JsonToXmlConverter(rootName: 'request');
+
+$xml = $converter->jsonToXmlString('{
+    "@type": "ABC",
+    "cliente": "Mario Rossi",
+    "note": [
+        {"#text": "Prima nota"},
+        {"#text": "Seconda nota"}
+    ]
+}');
+```
+
+produces:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<request type="ABC">
+  <cliente>Mario Rossi</cliente>
+  <note>Prima nota</note>
+  <note>Seconda nota</note>
+</request>
+```
+
+One call. No manual recursion, no wrapper element around the repeated `note` nodes, no `htmlspecialchars` calls scattered around. The conventions are consistent and documented:
+
+| JSON | XML |
+|---|---|
+| `"name": "value"` | child element |
+| `"@name": "value"` | attribute on the current node |
+| `"#text": "value"` | direct text content |
+| `"name": [ {...}, {...} ]` | `<name>` repeated once per element, no wrapper |
+
+Special characters are handled automatically too — CDATA is applied only when the content actually needs it (a value containing `<`, `>`, `&`, quotes, or a newline), and can be turned off entirely if you'd rather always use standard XML escaping:
+
+```php
+$converter = new JsonToXmlConverter(rootName: 'root', useCdata: false);
+```
+
+If you'd rather write straight to a file, or stream the XML directly as an HTTP response, both are one-liners:
+
+```php
+$converter->jsonToXmlFile($jsonString, 'output.xml');
+
+// or, e.g. inside a controller action:
+header('Content-Type: application/xml');
+$converter->jsonToXmlStdOut($jsonString);
+```
+
+## What about going back the other way?
+
+If you also need XML → JSON — say, you're consuming a third-party XML API and want to work with it as a normal PHP array — the same package ships `XmlToJsonConverter`, using the identical `@attribute` / `#text` / repeated-element conventions in reverse, plus built-in protection against XXE attacks when parsing XML from untrusted sources. That's a big enough topic on its own to get its own article — including the one case that genuinely can't be made symmetric: telling the converter that a tag should *always* come back as a list, even when there's only one of it.
+
+## Takeaway
+
+Converting a flat JSON object to XML is a five-line function. Converting *real* JSON — with lists, attributes, and mixed content — into XML that a strict downstream consumer will actually accept is a small library's worth of edge cases. If you're about to write that recursive function yourself, it's worth the thirty seconds of `composer require` first.

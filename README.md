@@ -7,6 +7,41 @@
 </div>
 
 PHP library to convert a JSON string into a valid XML document (and vice versa), with support for attributes, automatic CDATA, and mixed content.
+ 
+## Why this library?
+ 
+Converting simple JSON to XML is easy. The problem starts when your XML needs:
+ 
+- attributes
+- mixed content (text + attributes + children on the same node)
+- repeated elements without a wrapper
+- CDATA, applied automatically only where it's actually needed
+- predictable, symmetric JSON ↔ XML conventions
+- secure XML parsing (no XXE)
+Here's what that looks like in practice:
+ 
+```json
+{
+  "request": {
+    "@type": "ABC",
+    "cliente": "Mario Rossi",
+    "note": [
+      {"#text": "Prima nota"},
+      {"#text": "Seconda nota"}
+    ]
+  }
+}
+```
+ 
+```xml
+<request type="ABC">
+    <cliente>Mario Rossi</cliente>
+    <note>Prima nota</note>
+    <note>Seconda nota</note>
+</request>
+```
+ 
+One call, no manual `DOMDocument` wrangling, no wrapper elements around the repeated `note` nodes, and the XML parsing on the way back is hardened against XXE by default (`LIBXML_NONET`, see the security note further down).
 
 ## Requirements
 
