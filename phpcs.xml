@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<ruleset name="A35G-JsonToXml">
+    <description>Standard di codifica per la libreria json-to-xml (PSR-12).</description>
+
+    <arg name="basepath" value="."/>
+    <arg name="colors"/>
+    <arg name="extensions" value="php"/>
+    <arg value="sp"/>
+
+    <file>src</file>
+    <file>tests</file>
+    <file>bin/json-to-xml</file>
+
+    <rule ref="PSR12"/>
+
+    <!-- Nomi dei metodi di test verbosi in stile testXyzWhenAbc(): non applicare
+         il limite di lunghezza della riga dei commenti dei test, spesso più lunghi
+         per spiegare "perché" un caso limite viene testato. -->
+    <rule ref="Generic.Files.LineLength">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
+</ruleset>

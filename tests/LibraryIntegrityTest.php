@@ -428,5 +428,4 @@ final class LibraryIntegrityTest extends TestCase
             @unlink($outputFile);
         }
     }
-
 }

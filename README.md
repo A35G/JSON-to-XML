@@ -289,11 +289,53 @@ In particular:
 
 For security, XML parsing uses `LIBXML_NONET`, preventing network access via external entities and mitigating XXE attacks when the XML comes from untrusted sources.
 
+## CLI
+
+The package also ships a small command-line tool, `bin/json-to-xml`, for quick conversions without writing any PHP:
+
+```bash
+# JSON -> XML, reading from a file and writing to another file
+vendor/bin/json-to-xml to-xml --input=data.json --output=data.xml --root=root --item=entry
+
+# XML -> JSON, reading from STDIN and writing to STDOUT
+cat data.xml | vendor/bin/json-to-xml to-json --force-array=Nota
+```
+
+Options:
+
+| Option | Applies to | Description |
+| --- | --- | --- |
+| `--input=FILE` | both | Read input from `FILE` instead of STDIN |
+| `--output=FILE` | both | Write output to `FILE` instead of STDOUT |
+| `--root=NAME` | `to-xml` | Root element name (default `data`) |
+| `--item=NAME` | `to-xml` | Node name used for numeric/list items (default `item`) |
+| `--no-cdata` | `to-xml` | Disable automatic CDATA wrapping |
+| `--force-array=Tag1,Tag2` | `to-json` | Tags always represented as JSON arrays |
+
+Exit codes: `0` success, `1` invalid usage/unknown command, `2` I/O error, `3` invalid JSON/XML input, `4` internal conversion error.
+
 ## Tests
 
 ```bash
 composer install
 composer test
+```
+
+The suite includes a `CliTest` that exercises `bin/json-to-xml` as a real subprocess (argument parsing, STDIN/STDOUT, file I/O, exit codes).
+
+## Static analysis & coding standards
+
+```bash
+composer analyse   # PHPStan, level 8
+composer cs        # PHP_CodeSniffer, PSR-12
+composer cs-fix     # auto-fix what PHPCS can fix automatically
+composer check      # analyse + cs + test, in one go
+```
+
+If `composer analyse` reports pre-existing issues the first time you wire it into an older codebase, it's common to snapshot them into a baseline rather than fixing everything at once:
+
+```bash
+vendor/bin/phpstan analyse --generate-baseline
 ```
 
 ## License

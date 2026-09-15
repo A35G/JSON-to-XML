@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace A35G\JsonToXml;
 
-use DOMCdataSection;
 use DOMDocument;
 use DOMElement;
 use DOMText;
@@ -202,7 +201,10 @@ class XmlToJsonConverter
                 continue;
             }
 
-            if ($node instanceof DOMText || $node instanceof DOMCdataSection) {
+            // DOMCdataSection estende DOMText, quindi questo controllo intercetta
+            // sia il testo normale che le sezioni CDATA senza bisogno di un
+            // secondo instanceof esplicito.
+            if ($node instanceof DOMText) {
                 $textParts[] = $node->nodeValue;
             }
 

@@ -1,0 +1,159 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use A35G\JsonToXml\JsonToXmlConverter;
+use A35G\JsonToXml\XmlToJsonConverter;
+
+/**
+ * CLI per la libreria json-to-xml.
+ *
+ * Uso:
+ *   json-to-xml to-xml  [--input=file.json] [--output=file.xml] [--root=data] [--item=item] [--no-cdata]
+ *   json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2]
+ *
+ * Se --input è omesso, legge da STDIN. Se --output è omesso, scrive su STDOUT.
+ *
+ * Codici di uscita:
+ *   0 = successo
+ *   1 = uso non valido / comando sconosciuto
+ *   2 = errore di I/O (file non leggibile/scrivibile)
+ *   3 = InvalidArgumentException (JSON/XML non valido, dati non validi)
+ *   4 = RuntimeException (errore interno di conversione)
+ */
+function printUsage(): void
+{
+    fwrite(STDERR, <<<TXT
+Uso:
+  json-to-xml to-xml  [--input=file.json] [--output=file.xml] [--root=data] [--item=item] [--no-cdata]
+  json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2]
+
+Se --input è omesso, legge da STDIN. Se --output è omesso, scrive su STDOUT.
+
+TXT);
+}
+
+function printUsageAndExit(int $exitCode): never
+{
+    printUsage();
+    exit($exitCode);
+}
+
+/**
+ * @param string[] $args
+ * @return array{0: string[], 1: array<string, string|bool>}
+ */
+function parseArgs(array $args): array
+{
+    $positional = [];
+    $options = [];
+
+    foreach ($args as $arg) {
+        if (str_starts_with($arg, '--')) {
+            $body = substr($arg, 2);
+            if (str_contains($body, '=')) {
+                [$name, $value] = explode('=', $body, 2);
+                $options[$name] = $value;
+            } else {
+                $options[$body] = true;
+            }
+            continue;
+        }
+
+        $positional[] = $arg;
+    }
+
+    return [$positional, $options];
+}
+
+/**
+ * @param array<string, string|bool> $options
+ */
+function readInput(array $options): string
+{
+    if (isset($options['input']) && is_string($options['input'])) {
+        $path = $options['input'];
+        if (!is_readable($path)) {
+            fwrite(STDERR, "Impossibile leggere il file di input: {$path}\n");
+            exit(2);
+        }
+
+        return (string) file_get_contents($path);
+    }
+
+    $content = stream_get_contents(STDIN);
+
+    return $content === false ? '' : $content;
+}
+
+/**
+ * @param array<string, string|bool> $options
+ */
+function writeOutput(string $content, array $options): void
+{
+    if (isset($options['output']) && is_string($options['output'])) {
+        $path = $options['output'];
+        if (file_put_contents($path, $content) === false) {
+            fwrite(STDERR, "Impossibile scrivere il file di output: {$path}\n");
+            exit(2);
+        }
+
+        return;
+    }
+
+    fwrite(STDOUT, $content);
+}
+
+/** @var string[] $argv */
+$scriptName = array_shift($argv);
+[$positional, $options] = parseArgs($argv);
+
+if (isset($options['help'])) {
+    printUsageAndExit(0);
+}
+
+if ($positional === []) {
+    printUsageAndExit(1);
+}
+
+$command = $positional[0];
+
+try {
+    switch ($command) {
+        case 'to-xml':
+            $root = is_string($options['root'] ?? null) ? $options['root'] : 'data';
+            $item = is_string($options['item'] ?? null) ? $options['item'] : 'item';
+            $useCdata = !isset($options['no-cdata']);
+
+            $converter = new JsonToXmlConverter($root, $item, $useCdata);
+            $output = $converter->jsonToXmlString(readInput($options));
+            writeOutput($output, $options);
+            break;
+
+        case 'to-json':
+            $forceArrayTags = [];
+            if (isset($options['force-array']) && is_string($options['force-array'])) {
+                $forceArrayTags = array_values(array_filter(array_map('trim', explode(',', $options['force-array']))));
+            }
+
+            $converter = new XmlToJsonConverter($forceArrayTags);
+            $output = $converter->xmlToJsonString(readInput($options));
+            writeOutput($output, $options);
+            break;
+
+        default:
+            fwrite(STDERR, "Comando sconosciuto: {$command}\n");
+            printUsageAndExit(1);
+    }
+} catch (InvalidArgumentException $e) {
+    fwrite(STDERR, 'Errore: ' . $e->getMessage() . "\n");
+    exit(3);
+} catch (RuntimeException $e) {
+    fwrite(STDERR, 'Errore: ' . $e->getMessage() . "\n");
+    exit(4);
+}
+
+exit(0);

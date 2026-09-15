@@ -112,5 +112,4 @@ final class JsonToXmlConverterTest extends TestCase
 
         $this->assertStringContainsString('<testo>Città € 日本語 🚀</testo>', $xml);
     }
-
 }

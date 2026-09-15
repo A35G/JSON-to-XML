@@ -109,7 +109,9 @@ class JsonToXmlConverter
 
         $filename = tempnam($this->resolveTempDir(), 'xml_writer_');
         if ($filename === false) {
-            throw new RuntimeException('Impossibile creare un file temporaneo: controlla i limiti di file handle o i permessi della directory.');
+            throw new RuntimeException(
+                'Impossibile creare un file temporaneo: controlla i limiti di file handle o i permessi della directory.'
+            );
         }
 
         return $filename;
@@ -228,7 +230,10 @@ class JsonToXmlConverter
                 continue;
             }
 
-            $isNumericKey = is_int($key) || (is_string($key) && ctype_digit($key));
+            // Nel secondo operando dell'||, $key non può essere int (altrimenti
+            // l'espressione si sarebbe già fermata al primo operando): è quindi
+            // sempre una stringa, senza bisogno di un ulteriore is_string().
+            $isNumericKey = is_int($key) || ctype_digit($key);
             $nodeName = $isNumericKey ? $this->itemNodeName : $this->sanitizeTagName((string) $key);
 
             if (is_array($value)) {
@@ -375,7 +380,11 @@ class JsonToXmlConverter
      */
     private function sanitizeTagName(string $key): string
     {
-        $key = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $key);
+        // preg_replace() ha una firma string|array|null: con un soggetto stringa
+        // restituisce string|null, e torna null solo in caso di errore di regex
+        // (es. backtrack limit superato su input patologici). Senza il fallback,
+        // quel null si propagherebbe fino al return type "string" del metodo.
+        $key = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $key) ?? '';
 
         if ($key === '' || preg_match('/^[0-9\-\.]/', $key)) {
             $key = 'n_' . $key;

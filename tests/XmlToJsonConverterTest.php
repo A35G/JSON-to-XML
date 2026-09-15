@@ -151,5 +151,4 @@ final class XmlToJsonConverterTest extends TestCase
 
         $this->assertSame(['one'], $result['item']);
     }
-
 }

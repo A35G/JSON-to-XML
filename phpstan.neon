@@ -1,0 +1,20 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+        - bin/json-to-xml
+    excludePaths:
+        - vendor/*
+
+    # bin/json-to-xml è uno script CLI senza estensione .php: quando si passa un
+    # percorso di file esplicito (anziché una directory) PHPStan lo analizza
+    # comunque, indipendentemente dall'estensione.
+
+    # I test usano ReflectionClass::getMethod()->invoke() su metodi privati per
+    # verificare comportamenti interni (es. sanitizeTagName, tempFilename):
+    # è un pattern intenzionale, non un uso scorretto della reflection.
+    ignoreErrors:
+        - identifier: missingType.iterableValue
+
+    treatPhpDocTypesAsCertain: false
