@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-16
+
+_Tag committed 2026-09-16 01:51:11 +0200._
+
 ### Added
+- `bin/json-to-xml` CLI tool for converting between JSON and XML directly from the shell.
+- `CliTest.php`: test suite covering the CLI as a real subprocess.
+- PHPStan (level 8) and PHP_CodeSniffer (PSR-12) configuration, plus corresponding `composer` scripts for static analysis and code style checks.
+- Dedicated GitHub Actions workflow for static analysis and code style, run alongside the existing test workflow.
 - `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md` for contributors.
+
+### Fixed
+- `sanitizeTagName()` now handles the case where `preg_replace()` returns `null` on a regex engine error, instead of passing `null` on to code expecting a string.
+
+### Changed
+- Simplified redundant type checks flagged by static analysis.
 
 ## [1.0.1] - 2026-09-11
 
@@ -46,7 +60,7 @@ _Tag committed 2026-09-05 14:44:55 +0200; GitHub Release published 2026-09-10 21
 When cutting a new release, move entries from [Unreleased] into a new dated
 section above, e.g.:
 
-## [1.1.0] - 2026-09-16
+## [1.2.0] - YYYY-MM-DD
 
 ### Added
 ### Changed
