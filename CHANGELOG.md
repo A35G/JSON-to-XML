@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-18
+
+_Tag committed 2026-09-18 01:02:52 +0200; GitHub Release published 2026-09-18 01:10_
+
 ### Added
 - `JsonToXmlConverter::setStylesheet()` / `clearStylesheet()`: associate an XSLT or CSS stylesheet with generated XML documents via an `<?xml-stylesheet?>` processing instruction, placed before the root element.
 - `--stylesheet` and `--stylesheet-type` options for the `to-xml` CLI command.
 
 ## [1.1.0] - 2026-09-16
 
-_Tag committed 2026-09-16 01:51:11 +0200.; GitHub Release published 2026-09-16 02:01_
+_Tag committed 2026-09-16 01:51:11 +0200; GitHub Release published 2026-09-16 02:01_
 
 ### Added
 - `bin/json-to-xml` CLI tool for converting between JSON and XML directly from the shell.
