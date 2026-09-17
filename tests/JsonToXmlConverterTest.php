@@ -112,4 +112,100 @@ final class JsonToXmlConverterTest extends TestCase
 
         $this->assertStringContainsString('<testo>Città € 日本語 🚀</testo>', $xml);
     }
+
+    // ------------------------------------------------------------------
+    // Foglio di stile (setStylesheet / clearStylesheet)
+    // ------------------------------------------------------------------
+
+    public function testNoStylesheetProcessingInstructionByDefault(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $xml = $converter->jsonToXmlString('{"nome": "Mario"}');
+
+        $this->assertStringNotContainsString('xml-stylesheet', $xml);
+    }
+
+    public function testSetStylesheetAddsXmlStylesheetProcessingInstruction(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('style.xsl');
+
+        $xml = $converter->jsonToXmlString('{"nome": "Mario"}');
+
+        $this->assertStringContainsString('<?xml-stylesheet type="text/xsl" href="style.xsl"?>', $xml);
+    }
+
+    public function testStylesheetProcessingInstructionAppearsBeforeRootElement(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('style.xsl');
+
+        $xml = $converter->jsonToXmlString('{"nome": "Mario"}');
+
+        $piPosition = strpos($xml, '<?xml-stylesheet');
+        $rootPosition = strpos($xml, '<data');
+
+        $this->assertNotFalse($piPosition, 'La processing instruction xml-stylesheet non è stata trovata.');
+        $this->assertNotFalse($rootPosition, 'L\'elemento radice non è stato trovato.');
+        $this->assertLessThan(
+            $rootPosition,
+            $piPosition,
+            'La processing instruction xml-stylesheet deve precedere l\'elemento radice.'
+        );
+    }
+
+    public function testStylesheetTypeCanBeCustomized(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('style.css', 'text/css');
+
+        $xml = $converter->jsonToXmlString('{"nome": "Mario"}');
+
+        $this->assertStringContainsString('<?xml-stylesheet type="text/css" href="style.css"?>', $xml);
+    }
+
+    public function testHrefContainingDoubleQuotesIsWrappedInSingleQuotes(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('style-with-"quotes".xsl');
+
+        $xml = $converter->jsonToXmlString('{"nome": "Mario"}');
+
+        $this->assertStringContainsString("href='style-with-\"quotes\".xsl'", $xml);
+    }
+
+    public function testClearStylesheetRemovesPreviouslySetStylesheet(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('style.xsl');
+        $converter->clearStylesheet();
+
+        $xml = $converter->jsonToXmlString('{"nome": "Mario"}');
+
+        $this->assertStringNotContainsString('xml-stylesheet', $xml);
+    }
+
+    public function testEmptyStylesheetHrefThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('   ');
+    }
+
+    public function testStylesheetHrefWithBothQuoteTypesThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('style-\'a\'-"b".xsl');
+    }
+
+    public function testStylesheetTypeContainingQuotesThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $converter = new JsonToXmlConverter('data');
+        $converter->setStylesheet('style.xsl', 'text/xsl"');
+    }
 }

@@ -114,6 +114,36 @@ final class CliTest extends TestCase
         $this->assertSame(['uno'], $decoded['Nota']);
     }
 
+    public function testToXmlHonorsStylesheetOption(): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(
+            ['to-xml', '--stylesheet=style.xsl'],
+            '{"nome":"Mario"}'
+        );
+
+        $this->assertSame(0, $exitCode, "STDERR: {$stderr}");
+        $this->assertStringContainsString('<?xml-stylesheet type="text/xsl" href="style.xsl"?>', $stdout);
+    }
+
+    public function testToXmlHonorsCustomStylesheetType(): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(
+            ['to-xml', '--stylesheet=style.css', '--stylesheet-type=text/css'],
+            '{"nome":"Mario"}'
+        );
+
+        $this->assertSame(0, $exitCode, "STDERR: {$stderr}");
+        $this->assertStringContainsString('<?xml-stylesheet type="text/css" href="style.css"?>', $stdout);
+    }
+
+    public function testToXmlWithoutStylesheetOptionOmitsProcessingInstruction(): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(['to-xml'], '{"nome":"Mario"}');
+
+        $this->assertSame(0, $exitCode, "STDERR: {$stderr}");
+        $this->assertStringNotContainsString('xml-stylesheet', $stdout);
+    }
+
     public function testFileInputAndOutputOptionsWork(): void
     {
         $inputFile = tempnam(sys_get_temp_dir(), 'cli_in_');

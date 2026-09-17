@@ -6,6 +6,7 @@ namespace A35G\JsonToXml;
 
 use DOMDocument;
 use DOMElement;
+use DOMProcessingInstruction;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -25,6 +26,13 @@ use RuntimeException;
  *
  * Il CDATA viene applicato solo automaticamente, in base al contenuto (vedi needsCdata()):
  * non esiste una chiave per forzarlo indipendentemente dal valore.
+ *
+ * È inoltre possibile associare al documento generato un foglio di stile
+ * (XSLT o CSS) tramite setStylesheet(): viene aggiunta una processing
+ * instruction <?xml-stylesheet ...?> subito dopo la dichiarazione XML e
+ * prima dell'elemento radice. Questa impostazione non ha una chiave JSON
+ * corrispondente: è una proprietà del documento, non del contenuto, e va
+ * quindi configurata sul converter stesso (come setTempDir()).
  */
 class JsonToXmlConverter
 {
@@ -38,6 +46,12 @@ class JsonToXmlConverter
     private string $rootName;
     private string $itemNodeName;
     private bool $useCdata;
+
+    /** Href del foglio di stile associato al documento (null = nessuno) */
+    private ?string $stylesheetHref = null;
+
+    /** Tipo MIME del foglio di stile (es. "text/xsl", "text/css") */
+    private string $stylesheetType = 'text/xsl';
 
     protected ?string $tempdir = null;
 
@@ -66,6 +80,57 @@ class JsonToXmlConverter
     public function setTempDir(?string $tempdir = null): void
     {
         $this->tempdir = $tempdir;
+    }
+
+    /**
+     * Associa un foglio di stile (XSLT o CSS) ai documenti XML generati dalle
+     * chiamate successive a jsonToXmlString()/jsonToXmlFile()/jsonToXmlStdOut().
+     *
+     * Aggiunge una processing instruction <?xml-stylesheet type="..." href="..."?>
+     * subito dopo la dichiarazione XML e prima dell'elemento radice, come da
+     * specifica W3C "Associating Style Sheets with XML documents".
+     *
+     * Nota: essendo una processing instruction, viene intenzionalmente ignorata
+     * da XmlToJsonConverter (che già ignora commenti e PI in generale): non è
+     * quindi recuperabile in un eventuale round-trip XML -> JSON.
+     *
+     * @param string $href Percorso o URL del foglio di stile. Non può essere vuoto.
+     * @param string $type Tipo MIME del foglio di stile (default "text/xsl").
+     *
+     * @throws InvalidArgumentException se $href è vuoto, se $type contiene apici,
+     *                                  o se $href contiene sia apici singoli che
+     *                                  doppi (impossibile quotarlo in modo sicuro
+     *                                  all'interno della processing instruction)
+     */
+    public function setStylesheet(string $href, string $type = 'text/xsl'): void
+    {
+        if (trim($href) === '') {
+            throw new InvalidArgumentException('L\'href del foglio di stile non può essere vuoto.');
+        }
+
+        if (str_contains($type, '"') || str_contains($type, "'")) {
+            throw new InvalidArgumentException('Il "type" del foglio di stile non può contenere apici.');
+        }
+
+        if (str_contains($href, '"') && str_contains($href, "'")) {
+            throw new InvalidArgumentException(
+                'L\'href del foglio di stile non può contenere sia apici singoli che doppi: '
+                . 'non è possibile quotarlo in modo sicuro all\'interno della processing instruction.'
+            );
+        }
+
+        $this->stylesheetHref = $href;
+        $this->stylesheetType = $type;
+    }
+
+    /**
+     * Rimuove un foglio di stile precedentemente impostato con setStylesheet().
+     * I documenti generati dalle chiamate successive non includeranno più la
+     * processing instruction <?xml-stylesheet ...?>.
+     */
+    public function clearStylesheet(): void
+    {
+        $this->stylesheetHref = null;
     }
 
     /**
@@ -148,6 +213,10 @@ class JsonToXmlConverter
         $this->dom = new DOMDocument('1.0', 'UTF-8');
         $this->dom->formatOutput = $prettyPrint;
 
+        if ($this->stylesheetHref !== null) {
+            $this->dom->appendChild($this->createStylesheetProcessingInstruction());
+        }
+
         $root = $this->dom->createElement($this->sanitizeTagName($this->rootName));
         $this->dom->appendChild($root);
 
@@ -199,6 +268,34 @@ class JsonToXmlConverter
         }
 
         return $decoded;
+    }
+
+    /**
+     * Costruisce la processing instruction <?xml-stylesheet type="..." href="..."?>.
+     *
+     * Usa gli apici doppi di default; se l'href contiene un apice doppio (e non
+     * uno singolo, altrimenti setStylesheet() avrebbe già rifiutato il valore),
+     * passa agli apici singoli per evitare di generare una PI malformata.
+     */
+    private function createStylesheetProcessingInstruction(): DOMProcessingInstruction
+    {
+        $quote = str_contains((string) $this->stylesheetHref, '"') ? "'" : '"';
+
+        $data = sprintf(
+            'type=%1$s%2$s%1$s href=%1$s%3$s%1$s',
+            $quote,
+            $this->stylesheetType,
+            $this->stylesheetHref
+        );
+
+        // createProcessingInstruction() è tipizzato DOMProcessingInstruction|false nelle stub:
+        // stesso pattern di controllo esplicito già usato per saveXML() più sotto.
+        $processingInstruction = $this->dom->createProcessingInstruction('xml-stylesheet', $data);
+        if ($processingInstruction === false) {
+            throw new RuntimeException('Errore durante la creazione della processing instruction xml-stylesheet.');
+        }
+
+        return $processingInstruction;
     }
 
     /**

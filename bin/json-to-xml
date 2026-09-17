@@ -13,6 +13,7 @@ use A35G\JsonToXml\XmlToJsonConverter;
  *
  * Uso:
  *   json-to-xml to-xml  [--input=file.json] [--output=file.xml] [--root=data] [--item=item] [--no-cdata]
+ *                       [--stylesheet=style.xsl] [--stylesheet-type=text/xsl]
  *   json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2]
  *
  * Se --input è omesso, legge da STDIN. Se --output è omesso, scrive su STDOUT.
@@ -29,6 +30,7 @@ function printUsage(): void
     fwrite(STDERR, <<<TXT
 Uso:
   json-to-xml to-xml  [--input=file.json] [--output=file.xml] [--root=data] [--item=item] [--no-cdata]
+                      [--stylesheet=style.xsl] [--stylesheet-type=text/xsl]
   json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2]
 
 Se --input è omesso, legge da STDIN. Se --output è omesso, scrive su STDOUT.
@@ -129,6 +131,15 @@ try {
             $useCdata = !isset($options['no-cdata']);
 
             $converter = new JsonToXmlConverter($root, $item, $useCdata);
+
+            if (isset($options['stylesheet']) && is_string($options['stylesheet'])) {
+                $stylesheetType = is_string($options['stylesheet-type'] ?? null)
+                    ? $options['stylesheet-type']
+                    : 'text/xsl';
+
+                $converter->setStylesheet($options['stylesheet'], $stylesheetType);
+            }
+
             $output = $converter->jsonToXmlString(readInput($options));
             writeOutput($output, $options);
             break;

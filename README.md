@@ -173,6 +173,41 @@ Attributes, text, and child elements can be combined on the same node.
 <operatore codArea="XXX"><![CDATA[contiene <tag>]]></operatore>
 ```
 
+## Associating a stylesheet
+
+You can associate an XSLT (or CSS) stylesheet with the generated XML document via `setStylesheet()`. This adds an `<?xml-stylesheet ...?>` processing instruction right after the XML declaration and before the root element, following the W3C convention for associating style sheets with XML documents.
+
+```php
+$converter = new JsonToXmlConverter(rootName: 'root');
+$converter->setStylesheet('style.xsl'); // type defaults to "text/xsl"
+
+$xml = $converter->jsonToXmlString($jsonString);
+```
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="style.xsl"?>
+<root>
+  ...
+</root>
+```
+
+A CSS stylesheet can be used instead by passing an explicit type:
+
+```php
+$converter->setStylesheet('style.css', 'text/css');
+```
+
+To remove a previously configured stylesheet so subsequent conversions no longer include it:
+
+```php
+$converter->clearStylesheet();
+```
+
+`href` cannot be empty, and cannot contain both single and double quotes at the same time (the library needs to be able to quote it safely inside the processing instruction).
+
+This is only supported in the JSON → XML direction. Since `<?xml-stylesheet?>` is a processing instruction, `XmlToJsonConverter` intentionally ignores it, just like any other comment or processing instruction (see "Comments and processing instructions are ignored" below) — it is therefore not recoverable in a round-trip XML → JSON conversion.
+
 ## Repeated lists without a wrapper
 
 Indexed JSON arrays are represented as repeated XML elements, without an additional wrapper element.
@@ -310,6 +345,8 @@ Options:
 | `--root=NAME` | `to-xml` | Root element name (default `data`) |
 | `--item=NAME` | `to-xml` | Node name used for numeric/list items (default `item`) |
 | `--no-cdata` | `to-xml` | Disable automatic CDATA wrapping |
+| `--stylesheet=FILE` | `to-xml` | Add an `<?xml-stylesheet?>` processing instruction with this `href` |
+| `--stylesheet-type=TYPE` | `to-xml` | MIME type for `--stylesheet` (default `text/xsl`) |
 | `--force-array=Tag1,Tag2` | `to-json` | Tags always represented as JSON arrays |
 
 Exit codes: `0` success, `1` invalid usage/unknown command, `2` I/O error, `3` invalid JSON/XML input, `4` internal conversion error.
