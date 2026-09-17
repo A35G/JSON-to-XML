@@ -208,6 +208,8 @@ $converter->clearStylesheet();
 
 This is only supported in the JSON → XML direction. Since `<?xml-stylesheet?>` is a processing instruction, `XmlToJsonConverter` intentionally ignores it, just like any other comment or processing instruction (see "Comments and processing instructions are ignored" below) — it is therefore not recoverable in a round-trip XML → JSON conversion.
 
+**Security note:** `href` is written as-is into the processing instruction; it is not validated, sanitized, or resolved by this library. Do not pass untrusted/user-supplied input as `href` — see [SECURITY.md](SECURITY.md#stylesheet-association-jsontoxmlconvertersetstylesheet) for details.
+
 ## Repeated lists without a wrapper
 
 Indexed JSON arrays are represented as repeated XML elements, without an additional wrapper element.
