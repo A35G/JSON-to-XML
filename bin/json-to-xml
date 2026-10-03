@@ -3,7 +3,26 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../vendor/autoload.php';
+$autoloadFile = null;
+foreach (
+    [
+        $GLOBALS['_composer_autoload_path'] ?? null, // impostato da Composer per vendor/bin
+        __DIR__ . '/../vendor/autoload.php',         // checkout del repository
+        __DIR__ . '/../../../autoload.php',          // installato come dipendenza
+    ] as $candidate
+) {
+    if (is_string($candidate) && is_file($candidate)) {
+        $autoloadFile = $candidate;
+        break;
+    }
+}
+
+if ($autoloadFile === null) {
+    fwrite(STDERR, "Impossibile trovare l'autoloader di Composer: eseguire 'composer install'.\n");
+    exit(1);
+}
+
+require $autoloadFile;
 
 use A35G\JsonToXml\JsonToXmlConverter;
 use A35G\JsonToXml\XmlToJsonConverter;

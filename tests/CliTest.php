@@ -37,9 +37,9 @@ final class CliTest extends TestCase
      * @param string[] $args
      * @return array{0: int, 1: string, 2: string} [exitCode, stdout, stderr]
      */
-    private function runCli(array $args, ?string $stdin = null): array
+    private function runCli(array $args, ?string $stdin = null, string $script = self::CLI_SCRIPT): array
     {
-        $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(self::CLI_SCRIPT);
+        $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script);
         foreach ($args as $arg) {
             $cmd .= ' ' . escapeshellarg($arg);
         }
@@ -208,5 +208,41 @@ final class CliTest extends TestCase
 
         $this->assertSame(1, $exitCode);
         $this->assertStringContainsString('Uso:', $stderr);
+    }
+
+    public function testCliWorksWhenInstalledAsDependency(): void
+    {
+        // In un progetto che installa il pacchetto, lo script vive in
+        // vendor/a35g/json-to-xml/bin/ e l'autoloader in vendor/autoload.php:
+        // "../vendor/autoload.php" non esiste lì.
+        $realAutoload = realpath(__DIR__ . '/../vendor/autoload.php');
+        $this->assertNotFalse($realAutoload, 'vendor/autoload.php non trovato: eseguire composer install.');
+
+        $root = sys_get_temp_dir() . '/cli_installed_' . uniqid();
+        $binDir = $root . '/vendor/a35g/json-to-xml/bin';
+        $script = $binDir . '/json-to-xml';
+
+        mkdir($binDir, 0777, true);
+
+        try {
+            file_put_contents(
+                $root . '/vendor/autoload.php',
+                '<?php require ' . var_export($realAutoload, true) . ';'
+            );
+            copy(self::CLI_SCRIPT, $script);
+
+            [$exitCode, $stdout, $stderr] = $this->runCli(['to-xml'], '{"nome":"Mario"}', $script);
+
+            $this->assertSame(0, $exitCode, "STDERR: {$stderr}");
+            $this->assertStringContainsString('<nome>Mario</nome>', $stdout);
+        } finally {
+            @unlink($script);
+            @unlink($root . '/vendor/autoload.php');
+            @rmdir($binDir);
+            @rmdir($root . '/vendor/a35g/json-to-xml');
+            @rmdir($root . '/vendor/a35g');
+            @rmdir($root . '/vendor');
+            @rmdir($root);
+        }
     }
 }
