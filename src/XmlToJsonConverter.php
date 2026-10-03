@@ -187,6 +187,18 @@ class XmlToJsonConverter
 
         if ($element->hasAttributes()) {
             foreach ($element->attributes as $attribute) {
+                // Un riferimento a entità definita nel DOCTYPE, dentro un
+                // attributo, viene espanso solo alla lettura di ->value, con
+                // costo quadratico: loadXML() non lo intercetta. Le entità
+                // predefinite (&amp; &lt; ...) sono già testo e non arrivano qui.
+                foreach ($attribute->childNodes as $child) {
+                    if ($child instanceof \DOMEntityReference) {
+                        throw new InvalidArgumentException(
+                            "L'attributo \"{$attribute->nodeName}\" contiene un riferimento a entità: non supportato."
+                        );
+                    }
+                }
+
                 /** @var \DOMAttr $attribute */
                 $result[self::ATTRIBUTE_PREFIX . $attribute->name] = $attribute->value;
             }
@@ -196,6 +208,16 @@ class XmlToJsonConverter
         $textParts = [];
 
         foreach ($element->childNodes as $node) {
+            // Riferimento a un'entità dichiarata nel DOCTYPE: finora veniva
+            // scartato in silenzio (non è né DOMElement né DOMText), con
+            // perdita di dati. Meglio un errore esplicito, coerente con il
+            // rifiuto già applicato agli attributi.
+            if ($node instanceof \DOMEntityReference) {
+                throw new InvalidArgumentException(
+                    "L'elemento \"{$element->nodeName}\" contiene un riferimento a entità: non supportato."
+                );
+            }
+
             if ($node instanceof DOMElement) {
                 $childElements[] = $node;
                 continue;

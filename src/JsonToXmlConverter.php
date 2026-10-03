@@ -257,7 +257,7 @@ class JsonToXmlConverter
             throw new InvalidArgumentException('La stringa JSON è vuota.');
         }
 
-        $decoded = json_decode($jsonString, true);
+        $decoded = json_decode($jsonString, true, 512, JSON_BIGINT_AS_STRING);
 
         if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
             throw new InvalidArgumentException('Errore nella decodifica del JSON: ' . json_last_error_msg());
@@ -458,7 +458,30 @@ class JsonToXmlConverter
             return $value ? 'true' : 'false';
         }
 
-        return (string) $value;
+        $string = (string) $value;
+        $this->assertValidXmlChars($string);
+
+        return $string;
+    }
+
+    /**
+     * XML 1.0 ammette solo #x9, #xA, #xD, #x20-#xD7FF, #xE000-#xFFFD e
+     * #x10000-#x10FFFF: gli altri caratteri di controllo non sono validi
+     * nemmeno come riferimenti numerici, quindi non si possono "escapare".
+     *
+     * @throws InvalidArgumentException se il valore contiene caratteri non ammessi
+     */
+    private function assertValidXmlChars(string $value): void
+    {
+        // Pattern negato: 1 = trovato un carattere non valido, 0 = tutto ok,
+        // false = UTF-8 non valido (trattato come non valido).
+        $invalid = preg_match('/[^\x{9}\x{A}\x{D}\x{20}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]/u', $value);
+
+        if ($invalid !== 0) {
+            throw new InvalidArgumentException(
+                'Il valore contiene caratteri non ammessi in XML 1.0 (es. caratteri di controllo).'
+            );
+        }
     }
 
     /**
