@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-04
+
+### Fixed
+- `bin/json-to-xml` now finds Composer's autoloader when the package is installed as a dependency (`vendor/bin/json-to-xml`). Since 1.1.0 the script only worked from a checkout of the repository and failed with "Failed opening required .../vendor/autoload.php" in projects that installed the package.
+
 ## [1.3.0] - 2026-10-04
 
 _Tag committed 2026-10-04 01:10:22 +0200; GitHub Release published 2026-10-04 01:15_
