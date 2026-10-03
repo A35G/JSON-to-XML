@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Regression tests in `LibraryIntegrityTest.php` covering:
+  - entity-expansion attacks (Billion Laughs, recursive entities, quadratic blowup in element content and in attribute values), run in a separate PHP subprocess with a reduced `memory_limit` and a timeout, so a regression cannot crash or hang the whole test suite;
+  - resource budgets for large documents (100k sibling elements, 20k attributes, 5k namespace declarations, an 11 MB text node) and nesting depth limits in both directions;
+  - XML → JSON behavior of namespaces, and JSON → XML edge cases (duplicate keys, name collisions after sanitization);
+  - markup and namespace injection through JSON values, keys, and the root/item names;
+  - additional temporary-file and file I/O error cases.
+
+### Changed
+- `JsonToXmlConverter` now decodes JSON integers beyond the int64 range as strings (`JSON_BIGINT_AS_STRING`), so they are written to XML in full instead of being rounded to a float in scientific notation (e.g. `1.2345678901235E+19`).
+- `XmlToJsonConverter` now rejects documents containing references to entities declared in the DOCTYPE (see Security).
+- `SECURITY.md` and `README.md`: documented what the new tests do and do not guarantee, the dependency on the bundled libxml2 version, and the library's limits (no size/time limits of its own, unvalidated file paths, namespaces not preserved).
+
+### Fixed
+- `JsonToXmlConverter` now throws `InvalidArgumentException` for values containing characters that are not allowed in XML 1.0 (control characters other than tab, LF and CR), instead of silently producing a malformed document.
+
+### Security
+- `XmlToJsonConverter` now rejects (`InvalidArgumentException`) references to entities declared in the DOCTYPE, both in attribute values and in element content. In attribute values, reading the value expanded the entity with quadratic cost that neither `loadXML()` nor libxml2's own limits prevented (on libxml2 2.10.4, 16 MB of expanded content took about 14 s, and a ~250 KB crafted document did not finish within a 15 s test timeout). In element content, such references used to be silently dropped, losing data. Documents that rely on custom entities are no longer accepted; predefined entities (`&amp;`, `&lt;`, ...) and character references are unaffected.
+
 ## [1.2.0] - 2026-09-18
 
 _Tag committed 2026-09-18 01:02:52 +0200; GitHub Release published 2026-09-18 01:10_

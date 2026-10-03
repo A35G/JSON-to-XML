@@ -35,13 +35,31 @@ We will acknowledge your report as soon as possible and aim to provide a fix or 
   - `testExternalEntityIsNotResolvedIntoNodeText` — verifies that a `SYSTEM "file://..."` entity does not leak local file contents into the resulting array/JSON.
   - `testExternalEntityOverNetworkIsBlockedByLibxmlNonet` — verifies that a `SYSTEM "http://..."` entity does not trigger a network request or return remote content.
 - Comments and processing instructions in the XML are intentionally ignored during parsing and never reflected in the output.
+- Entity-expansion attacks (Billion Laughs, recursive entities, quadratic blowup) are covered by regression tests in `LibraryIntegrityTest.php`:
+  - `testSmallEntityExpansionIsNotExpandedIntoOutput`: internal entities are not substituted into the result.
+  - `testEntityExpansionAttacksAreRejectedOrNeutralized`: three payloads (classic Billion Laughs, mutually recursive entities, quadratic blowup) are parsed in a separate PHP process with `memory_limit=256M` and a 15 s timeout. The test fails on a timeout, an out-of-memory fatal error, or a suspiciously large output.
 
 If you are passing XML from an untrusted source (e.g. a public API endpoint) into `XmlToJsonConverter`, you are already protected against the most common XXE vectors by default — no additional configuration is required.
+
+### Entity expansion (Billion Laughs): what is and isn't guaranteed
+
+`XmlToJsonConverter` calls `DOMDocument::loadXML()` with `LIBXML_NONET` only. It deliberately does **not** pass `LIBXML_NOENT` (which would substitute entities) or `LIBXML_PARSEHUGE` (which lifts libxml2's safety limits). `LIBXML_NONET` itself does not limit entity expansion: the protection against Billion Laughs comes from libxml2's own amplification and depth checks, which this library leaves enabled.
+
+Please keep in mind:
+
+- **The tests accept two outcomes.** A payload is considered neutralized if the parser or the library rejects it (`InvalidArgumentException`, CLI exit code 3) or returns a small result without expanding anything (exit code 0). The tests do not distinguish between the two, and this may differ between libxml2 versions. What they do fail on is a timeout, an out-of-memory fatal error (exit code 255) or a large output.
+- **The result depends on the libxml2 version** bundled with your PHP build, not on this library. libxml2 releases before 2.9.2 are affected by [CVE-2014-3660](https://nvd.nist.gov/vuln/detail/CVE-2014-3660), a Billion Laughs variant that causes excessive CPU consumption even when entity substitution is disabled (as it is here). `composer.json` requires PHP >= 8.1, whose official builds bundle far more recent versions, so the practical risk is low, but distribution-patched or very old system libxml2 builds should be verified by running the test suite on the target environment. Note also that libxml2's maintainers have described its amplification and recursion protections as not systematic, so they should be treated as a safety net rather than a hard guarantee.
+- **The tests are a safety net, not a proof.** They cover well-known payload shapes with fixed sizes. Other variants (e.g. parameter entities, much larger payloads) are not covered. The attribute-value case was in fact found by an additional test, not by the original three payloads.
+- **Do not add `LIBXML_NOENT` or `LIBXML_PARSEHUGE`** to `loadXml()`: either would weaken these protections. Changes to this method are security-sensitive (see `CONTRIBUTING.md`) and must keep these tests green.
+- **References to DOCTYPE-declared entities are rejected by the library itself**, both in attribute values and in element content (`InvalidArgumentException`, CLI exit code 3). In attribute values, libxml2 does not expand them at parse time, but reading `DOMAttr::$value` does, with quadratic cost: measured on libxml2 2.10.4, 16 MB of expanded content took about 14 s and the 10 MB node limit did not apply. In element content, such references used to be silently dropped (data loss); they are now rejected for consistency. Predefined entities (`&amp;`, `&lt;`, ...) and character references are unaffected. Covered by `testQuadraticBlowupInAttributeValueIsRejectedOrNeutralized`, `testEntityReferenceInAttributeIsRejectedQuickly` and `testEntityReferenceInElementContentIsRejected`.
+- **Recommended:** run the test suite in CI on multiple PHP versions and operating systems, so a change in libxml2 behavior is detected early.
 
 ### JSON parsing (JsonToXmlConverter)
 
 - JSON is decoded via `json_decode()` with explicit error checking (`json_last_error()`); malformed JSON raises an `InvalidArgumentException` rather than silently producing partial output.
 - There is no code execution, deserialization of PHP objects, or `eval()`-like behavior involved in either direction of the conversion.
+- Element and attribute names are sanitized, so JSON keys (and the `--root` / `--item` CLI options) cannot inject markup or namespaces into the generated XML. Values cannot break out of their node, including values containing `]]>`. Covered by `testHostileValuesCannotBreakOutOfTheirNode` and `testKeysCannotInjectMarkupOrNamespaces`.
+- Values containing characters that are not allowed in XML 1.0 (control characters other than tab, LF and CR) are rejected with an `InvalidArgumentException` instead of producing a malformed document. Covered by `testCharactersInvalidInXml10AreRejectedOrSerializedSafely`.
 
 ### Temporary files
 
@@ -54,14 +72,18 @@ If you are passing XML from an untrusted source (e.g. a public API endpoint) int
 - `setStylesheet()` writes the `href` you pass it verbatim into an `<?xml-stylesheet type="..." href="..."?>` processing instruction. The library only validates that `href` is non-empty and that it can be safely quoted inside the processing instruction (no mixed single/double quotes) — it does **not** validate, sanitize, or resolve the URL/path itself, and `LIBXML_NONET` has no effect here since this instruction is only ever *written* by `JsonToXmlConverter`, never *resolved* by it.
 - The risk lives downstream: if the XML you generate is later opened by an XSLT-aware consumer (a browser, an XML editor, another service that auto-applies stylesheets), that consumer may fetch whatever `href` you embedded. Passing an untrusted or attacker-controlled value as `href` can therefore let that downstream consumer be redirected to fetch an arbitrary local or remote resource — conceptually similar to an SSRF vector, but triggered by the *consumer* of the XML, not by this library.
 - **Do not pass user-supplied input directly as `href`** unless you trust it or have validated it yourself (e.g. an allow-list of known stylesheet paths/URLs your application controls). This mirrors the general rule for `JsonToXmlConverter`: it processes the JSON *content* safely, but a document-level setting like the stylesheet association is a configuration you control, not untrusted payload data, and should be treated accordingly.
-- `XmlToJsonConverter` ignores this processing instruction entirely when reading XML back (see "Comments and processing instructions are ignored" in the README), so it plays no role on the parsing side of the library.
+- `XmlToJsonConverter` ignores this processing instruction entirely when reading XML back (see "Not a perfect round-trip" in the README), so it plays no role on the parsing side of the library.
 
 ### What this library does **not** protect against
 
-- **Resource exhaustion / billion-laughs style attacks**: `LIBXML_NONET` blocks network-based entity resolution but does not by itself limit entity expansion depth or size. If you process XML from a fully untrusted source where denial-of-service is a concern, consider adding your own size/time limits (e.g. `libxml_set_external_entity_loader`, request timeouts, or a size cap before parsing).
+- **Resource exhaustion beyond libxml2's built-in limits**: the library does not implement its own limits on document size, nesting depth or parsing time, and relies on libxml2's built-in safeguards against entity expansion (see "Entity expansion" above), plus its own rejection of entity references. Plain large documents (e.g. hundreds of MB without any entities) are parsed as-is. If you process XML from a fully untrusted source where denial-of-service is a concern, add your own size cap before parsing and a request or execution timeout.
 - **Stylesheet `href` validation**: as described above, `setStylesheet()` does not validate or restrict the `href` value in any way beyond safe quoting. Treat it as a trusted, application-controlled setting, not as a place to forward untrusted input.
 - **Schema validation**: this library does not validate input JSON or XML against a schema. If your application requires structural guarantees beyond "well-formed," validate separately before or after conversion.
 - **Output encoding for other contexts**: the XML/JSON produced is safe as XML/JSON, but if you embed the output elsewhere (e.g. inside HTML), apply the appropriate escaping for that context.
+- **File paths are not validated.** `jsonToXmlFile()`, `xmlFileToJsonFile()` and the CLI options `--input` / `--output` use the given path as-is: there is no path-traversal protection, symlinks are followed and existing files are overwritten. Never pass user-controlled paths to these functions without validating them first.
+- **Whole documents are held in memory.** Input is read entirely (`file_get_contents()` / `stream_get_contents()`) and parsed into a DOM. The tests check that large but legitimate documents (100k sibling elements, 20k attributes, 5k namespace declarations) stay within a reasonable time and memory budget, and that nodes above libxml2's limit (10 MB of text) are rejected, but the library itself enforces no size limit.
+- **Nesting depth is capped by the underlying parsers, not by the library.** `json_decode()` stops at depth 512 and libxml2 at 256 without `LIBXML_PARSEHUGE`. A JSON document nested between 257 and 512 levels is converted to XML successfully, but `XmlToJsonConverter` cannot read that XML back (documented by a test).
+- **Namespaces are not preserved in XML → JSON.** Prefixes are kept in element names, attribute prefixes are dropped (so `a:id` and `b:id` collapse into `@id`) and namespace URIs and `xmlns` declarations never appear in the output. Consumers must not rely on namespaces to distinguish elements.
 
 ## Disclosure policy
 

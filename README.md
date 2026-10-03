@@ -95,6 +95,9 @@ JSON scalar values are converted into their XML text representation:
 | `true` | `<element>true</element>` |
 | `false` | `<element>false</element>` |
 | `null` | `<element/>` |
+| `12345678901234567890` | `<element>12345678901234567890</element>` |
+
+Integers beyond the int64 range are written with all their digits (they are decoded as strings, not rounded to a float). Strings containing characters that are not allowed in XML 1.0 (control characters other than tab, line feed and carriage return) are rejected with an `InvalidArgumentException`: they cannot be represented in an XML 1.0 document, not even as character references.
 
 ### Attributes
 
@@ -206,7 +209,7 @@ $converter->clearStylesheet();
 
 `href` cannot be empty, and cannot contain both single and double quotes at the same time (the library needs to be able to quote it safely inside the processing instruction).
 
-This is only supported in the JSON → XML direction. Since `<?xml-stylesheet?>` is a processing instruction, `XmlToJsonConverter` intentionally ignores it, just like any other comment or processing instruction (see "Comments and processing instructions are ignored" below) — it is therefore not recoverable in a round-trip XML → JSON conversion.
+This is only supported in the JSON → XML direction. Since `<?xml-stylesheet?>` is a processing instruction, `XmlToJsonConverter` intentionally ignores it, just like any other comment or processing instruction (see "Not a perfect round-trip" below) — it is therefore not recoverable in a round-trip XML → JSON conversion.
 
 **Security note:** `href` is written as-is into the processing instruction; it is not validated, sanitized, or resolved by this library. Do not pass untrusted/user-supplied input as `href` — see [SECURITY.md](SECURITY.md#stylesheet-association-jsontoxmlconvertersetstylesheet) for details.
 
@@ -323,8 +326,11 @@ In particular:
 - **Comments and processing instructions** are ignored.
 - **Mixed content**: text and child elements are represented separately in the JSON; the original order between the different nodes is not preserved as a sequence.
 - **Unicode**: Unicode characters are preserved during conversion.
+- **Entities**: references to entities declared in the DOCTYPE (in element content or attribute values) are rejected with an `InvalidArgumentException`. Predefined entities and character references work normally.
 
 For security, XML parsing uses `LIBXML_NONET`, preventing network access via external entities and mitigating XXE attacks when the XML comes from untrusted sources.
+
+Entity-expansion attacks (Billion Laughs and similar) are covered by regression tests, but the protection comes from libxml2's own built-in limits, which the library leaves enabled (it never passes `LIBXML_NOENT` or `LIBXML_PARSEHUGE`). It therefore depends on the libxml2 version bundled with your PHP build, and the library does not enforce its own size or time limits. For fully untrusted input, add a size cap and a timeout on your side. See [SECURITY.md](SECURITY.md) for details.
 
 ## CLI
 
@@ -352,6 +358,8 @@ Options:
 | `--force-array=Tag1,Tag2` | `to-json` | Tags always represented as JSON arrays |
 
 Exit codes: `0` success, `1` invalid usage/unknown command, `2` I/O error, `3` invalid JSON/XML input, `4` internal conversion error.
+
+`--input` and `--output` paths are used as-is: they are not validated, symlinks are followed and existing files are overwritten. Do not pass user-controlled paths without validating them first.
 
 ## Tests
 
