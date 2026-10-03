@@ -7,7 +7,7 @@
 | latest  | :white_check_mark: |
 | < latest| :x:                |
 
-As this library follows semantic versioning and is still pre-1.0/early-stage, security fixes are only guaranteed for the latest released version. Please upgrade before reporting an issue to confirm it still applies.
+As this library follows semantic versioning, security fixes are only guaranteed for the latest released version. Please upgrade before reporting an issue to confirm it still applies.
 
 ## Reporting a vulnerability
 

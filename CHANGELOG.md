@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-04
+
 ### Added
 - Regression tests in `LibraryIntegrityTest.php` covering:
   - entity-expansion attacks (Billion Laughs, recursive entities, quadratic blowup in element content and in attribute values), run in a separate PHP subprocess with a reduced `memory_limit` and a timeout, so a regression cannot crash or hang the whole test suite;
@@ -87,7 +89,7 @@ _Tag committed 2026-09-05 14:44:55 +0200; GitHub Release published 2026-09-10 21
 When cutting a new release, move entries from [Unreleased] into a new dated
 section above, e.g.:
 
-## [1.2.0] - YYYY-MM-DD
+## [1.4.0] - YYYY-MM-DD
 
 ### Added
 ### Changed
