@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to install from Packagist (e.g. 1.3.1). Leave empty to skip the Packagist job."
+        required: false
+        default: ""
   release:
     types: [published]
 
@@ -48,8 +53,8 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/repo/.github/scripts/smoke-cli.sh"
 
   packagist:
-    # Dopo una release: installa la versione pubblicata da Packagist.
-    if: github.event_name == 'release'
+    # Dopo una release, oppure a mano indicando una versione.
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.version != '')
     name: Published version from Packagist
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +72,7 @@ jobs:
 
       - name: Install the published version from Packagist (with retries)
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.version }}
         run: |
           VERSION="${TAG#v}"
           mkdir smoke
