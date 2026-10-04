@@ -1,0 +1,2 @@
+*.sh text eol=lf
+bin/json-to-xml text eol=lf

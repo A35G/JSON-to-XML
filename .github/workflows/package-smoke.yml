@@ -1,0 +1,88 @@
+name: Package smoke test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  local:
+    # Installa il codice del repository come dipendenza e prova la CLI.
+    if: github.event_name != 'release'
+    name: Installed as dependency (PHP ${{ matrix.php-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.1", "8.4"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Setup PHP ${{ matrix.php-version }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: dom, json
+          coverage: none
+          tools: composer:v2
+
+      - name: Install the package as a dependency (copied, not symlinked)
+        run: |
+          mkdir smoke
+          cd smoke
+          echo '{}' > composer.json
+          composer config repositories.local '{"type":"path","url":"../repo","options":{"symlink":false,"versions":{"a35g/json-to-xml":"1.99.0"}}}'
+          composer require "a35g/json-to-xml:1.99.0" --no-interaction
+
+      - name: Smoke test the CLI
+        working-directory: smoke
+        run: bash "$GITHUB_WORKSPACE/repo/.github/scripts/smoke-cli.sh"
+
+  packagist:
+    # Dopo una release: installa la versione pubblicata da Packagist.
+    if: github.event_name == 'release'
+    name: Published version from Packagist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: dom, json
+          coverage: none
+          tools: composer:v2
+
+      - name: Install the published version from Packagist (with retries)
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#v}"
+          mkdir smoke
+          cd smoke
+          echo '{}' > composer.json
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if composer require "a35g/json-to-xml:${VERSION}" --no-interaction; then
+              exit 0
+            fi
+            echo "Attempt ${attempt} failed: Packagist may not have indexed ${TAG} yet. Retrying in 30 s."
+            sleep 30
+          done
+          echo "Could not install ${VERSION} from Packagist." >&2
+          exit 1
+
+      - name: Smoke test the CLI
+        working-directory: smoke
+        run: bash "$GITHUB_WORKSPACE/repo/.github/scripts/smoke-cli.sh"
