@@ -255,7 +255,7 @@
   </div>
 
   <h1>JSON becomes XML.<br>XML becomes <em>JSON.</em></h1>
-  <p class="sub">Attributes, mixed content, repeated elements without a wrapper, CDATA applied only where it's needed. Type or pick an example below — it converts as you go.</p>
+  <p class="sub">Attributes, mixed content, repeated elements without a wrapper, CDATA applied only where it's needed, an optional XSLT/CSS stylesheet. Type or pick an example below — it converts as you go.</p>
 
   <div class="toggle" role="group" aria-label="Direzione di conversione">
     <button id="btnJ2X" type="button" aria-pressed="true">JSON → XML</button>
@@ -266,6 +266,8 @@
     <label>root <input type="text" id="optRoot" value="request"></label>
     <label>item <input type="text" id="optItem" value="item"></label>
     <label><input type="checkbox" id="optCdata" checked> automatic CDATA</label>
+    <label>stylesheet href <input type="text" class="wide" id="optStyleHref" placeholder="es. style.xsl"></label>
+    <label>type <input type="text" id="optStyleType" value="text/xsl" style="width:90px"></label>
   </div>
 
   <div id="optsX2J" class="options" style="display:none;">
@@ -334,7 +336,13 @@
 
   // ---------- JSON -> XML ----------
 
-  function jsonToXml(jsonString, rootName, itemNodeName, useCdata){
+  function escapePiValue(str){
+    // The href/type of a processing instruction can't safely contain '"' or the
+    // PI terminator '?>'; keep this defensive rather than producing broken XML.
+    return String(str).replace(/"/g, '&quot;').replace(/\?>/g, '');
+  }
+
+  function jsonToXml(jsonString, rootName, itemNodeName, useCdata, stylesheetHref, stylesheetType){
     var data;
     try {
       data = JSON.parse(jsonString);
@@ -348,7 +356,17 @@
     var rootTag = sanitizeTagName(rootName || 'data');
 
     var built = buildNode(data, itemNodeName, useCdata, 0);
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + wrapTag(rootTag, built, 0);
+    var out = '<?xml version="1.0" encoding="UTF-8"?>\n';
+
+    // setStylesheet(): placed right after the XML declaration, before the root
+    // element, per the W3C convention for associating style sheets with XML.
+    var href = (stylesheetHref || '').trim();
+    if (href !== '') {
+      var type = (stylesheetType || '').trim() || 'text/xsl';
+      out += '<?xml-stylesheet type="' + escapePiValue(type) + '" href="' + escapePiValue(href) + '"?>\n';
+    }
+
+    return out + wrapTag(rootTag, built, 0);
   }
 
   // Renders the *content* (attrs + inner) for a node whose data is `value`.
@@ -546,6 +564,7 @@
   var inputLabel = $('inputLabel'), outputLabel = $('outputLabel');
   var optsJ2X = $('optsJ2X'), optsX2J = $('optsX2J');
   var optRoot = $('optRoot'), optItem = $('optItem'), optCdata = $('optCdata'), optForce = $('optForce');
+  var optStyleHref = $('optStyleHref'), optStyleType = $('optStyleType');
   var btnJ2X = $('btnJ2X'), btnX2J = $('btnX2J'), swapBtn = $('swapBtn'), copyBtn = $('copyBtn');
 
   var EXAMPLES = {
@@ -558,7 +577,9 @@
           operatore: { '@codArea': 'XXX', '#text': 'contiene <tag>' }
         }, null, 2) },
       { label: 'valore null', value: JSON.stringify({ nome: 'Mario', note: null }, null, 2) },
-      { label: 'booleani', value: JSON.stringify({ attivo: true, eliminato: false }, null, 2) }
+      { label: 'booleani', value: JSON.stringify({ attivo: true, eliminato: false }, null, 2) },
+      { label: 'stylesheet', value: JSON.stringify({ nome: 'Mario', eta: 34 }, null, 2),
+        stylesheetHref: 'style.xsl', stylesheetType: 'text/xsl' }
     ],
     x2j: [
       { label: 'attributi + liste', value:
@@ -579,6 +600,10 @@
       btn.textContent = ex.label;
       btn.addEventListener('click', function(){
         input.value = ex.value;
+        if (mode === 'j2x'){
+          optStyleHref.value = ex.stylesheetHref || '';
+          optStyleType.value = ex.stylesheetType || 'text/xsl';
+        }
         convert();
       });
       container.appendChild(btn);
@@ -607,7 +632,7 @@
     try {
       var result;
       if (mode === 'j2x'){
-        result = jsonToXml(val, optRoot.value, optItem.value, optCdata.checked);
+        result = jsonToXml(val, optRoot.value, optItem.value, optCdata.checked, optStyleHref.value, optStyleType.value);
       } else {
         var forceTags = (optForce.value || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
         result = xmlToJson(val, forceTags);
@@ -629,13 +654,15 @@
   }
 
   input.addEventListener('input', scheduleConvert);
-  [optRoot, optItem, optForce].forEach(function(el){ el.addEventListener('input', scheduleConvert); });
+  [optRoot, optItem, optForce, optStyleHref, optStyleType].forEach(function(el){ el.addEventListener('input', scheduleConvert); });
   optCdata.addEventListener('change', convert);
 
   btnJ2X.addEventListener('click', function(){
     if (mode === 'j2x') return;
     setMode('j2x');
     input.value = EXAMPLES.j2x[0].value;
+    optStyleHref.value = '';
+    optStyleType.value = 'text/xsl';
     convert();
   });
   btnX2J.addEventListener('click', function(){
@@ -655,6 +682,8 @@
     } else {
       setMode('j2x');
       input.value = carry || EXAMPLES.j2x[0].value;
+      optStyleHref.value = '';
+      optStyleType.value = 'text/xsl';
     }
     convert();
   });
