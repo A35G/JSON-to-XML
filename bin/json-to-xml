@@ -27,15 +27,22 @@ require $autoloadFile;
 use A35G\JsonToXml\JsonToXmlConverter;
 use A35G\JsonToXml\XmlToJsonConverter;
 
+/** Limite di default per la CLI: 16 MiB. Disattivabile con --max-bytes=0. */
+const DEFAULT_MAX_BYTES = 16777216;
+
 /**
  * CLI per la libreria json-to-xml.
  *
  * Uso:
  *   json-to-xml to-xml  [--input=file.json] [--output=file.xml] [--root=data] [--item=item] [--no-cdata]
- *                       [--stylesheet=style.xsl] [--stylesheet-type=text/xsl]
- *   json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2]
+ *                       [--stylesheet=style.xsl] [--stylesheet-type=text/xsl] [--max-bytes=N]
+ *   json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2] [--max-bytes=N] 
+ *                       [--allow-doctype]
  *
  * Se --input è omesso, legge da STDIN. Se --output è omesso, scrive su STDOUT.
+ * 
+ * --max-bytes=N  Dimensione massima dell'input in byte (default 16777216, 0 = nessun limite).
+ * --allow-doctype  to-json: accetta XML con DOCTYPE (rifiutato per default: usalo solo con input fidato).
  *
  * Codici di uscita:
  *   0 = successo
@@ -49,10 +56,14 @@ function printUsage(): void
     fwrite(STDERR, <<<TXT
 Uso:
   json-to-xml to-xml  [--input=file.json] [--output=file.xml] [--root=data] [--item=item] [--no-cdata]
-                      [--stylesheet=style.xsl] [--stylesheet-type=text/xsl]
-  json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2]
+                      [--stylesheet=style.xsl] [--stylesheet-type=text/xsl] [--max-bytes=N]
+  json-to-xml to-json [--input=file.xml]  [--output=file.json] [--force-array=Tag1,Tag2] [--max-bytes=N]
+                      [--allow-doctype]
 
 Se --input è omesso, legge da STDIN. Se --output è omesso, scrive su STDOUT.
+
+--max-bytes=N  Dimensione massima dell'input in byte (default 16777216, 0 = nessun limite).
+--allow-doctype  to-json: accetta XML con DOCTYPE (rifiutato per default: usalo solo con input fidato).
 
 TXT);
 }
@@ -93,8 +104,36 @@ function parseArgs(array $args): array
 /**
  * @param array<string, string|bool> $options
  */
-function readInput(array $options): string
+function resolveMaxBytes(array $options): ?int
 {
+    if (!isset($options['max-bytes'])) {
+        return DEFAULT_MAX_BYTES;
+    }
+
+    $raw = $options['max-bytes'];
+    $value = is_string($raw)
+        ? filter_var($raw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => PHP_INT_MAX - 1]])
+        : false;
+
+    if ($value === false) {
+        fwrite(STDERR, "Valore non valido per --max-bytes (atteso un intero >= 0).\n");
+        exit(1);
+    }
+
+    return $value === 0 ? null : $value;
+}
+
+/**
+ * @param array<string, string|bool> $options
+ */
+function readInput(array $options, ?int $maxBytes): string
+{
+    // Si legge un byte in più del limite: basta alla classe per rifiutare
+    // l'input, senza mai caricare in memoria uno stream illimitato.
+    // $maxBytes proviene da resolveMaxBytes(), che garantisce 1 <= valore <= PHP_INT_MAX - 1.
+    /** @var int<0, max>|null $limit */
+    $limit = $maxBytes === null ? null : $maxBytes + 1;
+
     if (isset($options['input']) && is_string($options['input'])) {
         $path = $options['input'];
         if (!is_readable($path)) {
@@ -102,10 +141,10 @@ function readInput(array $options): string
             exit(2);
         }
 
-        return (string) file_get_contents($path);
+        return (string) file_get_contents($path, false, null, 0, $limit);
     }
 
-    $content = stream_get_contents(STDIN);
+    $content = stream_get_contents(STDIN, $limit);
 
     return $content === false ? '' : $content;
 }
@@ -143,13 +182,16 @@ if ($positional === []) {
 $command = $positional[0];
 
 try {
+
+    $maxBytes = resolveMaxBytes($options);
+
     switch ($command) {
         case 'to-xml':
             $root = is_string($options['root'] ?? null) ? $options['root'] : 'data';
             $item = is_string($options['item'] ?? null) ? $options['item'] : 'item';
             $useCdata = !isset($options['no-cdata']);
 
-            $converter = new JsonToXmlConverter($root, $item, $useCdata);
+            $converter = new JsonToXmlConverter($root, $item, $useCdata, $maxBytes);
 
             if (isset($options['stylesheet']) && is_string($options['stylesheet'])) {
                 $stylesheetType = is_string($options['stylesheet-type'] ?? null)
@@ -159,7 +201,7 @@ try {
                 $converter->setStylesheet($options['stylesheet'], $stylesheetType);
             }
 
-            $output = $converter->jsonToXmlString(readInput($options));
+            $output = $converter->jsonToXmlString(readInput($options, $maxBytes));
             writeOutput($output, $options);
             break;
 
@@ -169,8 +211,8 @@ try {
                 $forceArrayTags = array_values(array_filter(array_map('trim', explode(',', $options['force-array']))));
             }
 
-            $converter = new XmlToJsonConverter($forceArrayTags);
-            $output = $converter->xmlToJsonString(readInput($options));
+            $converter = new XmlToJsonConverter($forceArrayTags, $maxBytes, isset($options['allow-doctype']));
+            $output = $converter->xmlToJsonString(readInput($options, $maxBytes));
             writeOutput($output, $options);
             break;
 

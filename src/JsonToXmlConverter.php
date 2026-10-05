@@ -53,6 +53,8 @@ class JsonToXmlConverter
     /** Tipo MIME del foglio di stile (es. "text/xsl", "text/css") */
     private string $stylesheetType = 'text/xsl';
 
+    private ?int $maxInputBytes;
+
     protected ?string $tempdir = null;
 
     /**
@@ -65,16 +67,44 @@ class JsonToXmlConverter
      *                              che contengono caratteri speciali XML (< > & ' ") o newline.
      *                              Se false, il testo viene serializzato utilizzando la normale
      *                              codifica di escape XML.
+     * @param int|null $maxInputBytes Dimensione massima (in byte) del JSON accettato; null = nessun limite.
      */
-    public function __construct(string $rootName = 'data', string $itemNodeName = 'item', bool $useCdata = true)
-    {
-        $this->rootName     = $rootName;
-        $this->itemNodeName = $this->sanitizeTagName($itemNodeName);
-        $this->useCdata     = $useCdata;
+    public function __construct(
+        string $rootName = 'data',
+        string $itemNodeName = 'item',
+        bool $useCdata = true,
+        ?int $maxInputBytes = null
+    ) {
+        $this->rootName       = $rootName;
+        $this->itemNodeName   = $this->sanitizeTagName($itemNodeName);
+        $this->useCdata       = $useCdata;
+        $this->maxInputBytes  = self::assertValidLimit($maxInputBytes);
 
         if (!$this->isTempDirWritable()) {
             self::log('Warning: tempdir ' . $this->resolveTempDir() . ' non scrivibile, usa ->setTempDir()');
         }
+    }
+
+    /**
+     * Imposta (o rimuove, con null) il limite di dimensione del JSON in ingresso.
+     *
+     * @throws InvalidArgumentException se il limite non è un intero positivo valido
+     */
+    public function setMaxInputBytes(?int $maxInputBytes): void
+    {
+        $this->maxInputBytes = self::assertValidLimit($maxInputBytes);
+    }
+
+    /**
+     * @throws InvalidArgumentException se il limite è < 1 o troppo grande
+     */
+    private static function assertValidLimit(?int $limit): ?int
+    {
+        if ($limit !== null && ($limit < 1 || $limit > PHP_INT_MAX - 1)) {
+            throw new InvalidArgumentException('maxInputBytes deve essere un intero >= 1 oppure null.');
+        }
+
+        return $limit;
     }
 
     public function setTempDir(?string $tempdir = null): void
@@ -253,6 +283,12 @@ class JsonToXmlConverter
      */
     private function decodeJson(string $jsonString): array
     {
+        if ($this->maxInputBytes !== null && strlen($jsonString) > $this->maxInputBytes) {
+            throw new InvalidArgumentException(
+                sprintf('Il JSON supera il limite consentito di %d byte.', $this->maxInputBytes)
+            );
+        }
+
         if (trim($jsonString) === '') {
             throw new InvalidArgumentException('La stringa JSON è vuota.');
         }
@@ -303,7 +339,7 @@ class JsonToXmlConverter
      *
      * Le chiavi che iniziano con "@" vengono trattate come attributi del nodo
      * $parentNode stesso (non generano un elemento figlio). Le chiavi speciali
-     * "#text" e "#cdata" impostano il contenuto testuale diretto di $parentNode
+     * "#text" imposta il contenuto testuale diretto di $parentNode
      * (utile per il mixed content: nodo con attributi + testo).
      */
     private function arrayToXml(array $data, DOMElement $parentNode): void
@@ -316,7 +352,7 @@ class JsonToXmlConverter
             }
         }
 
-        // Seconda passata: testo diretto, CDATA forzato, liste ed elementi figli.
+        // Seconda passata: testo diretto, liste ed elementi figli.
         foreach ($data as $key => $value) {
             if ($this->isAttributeKey($key)) {
                 continue; // già gestita sopra

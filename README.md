@@ -46,6 +46,7 @@ Here's what that looks like in practice:
 ```
  
 One call, no manual `DOMDocument` wrangling, no wrapper elements around the repeated `note` nodes, and the XML parsing on the way back is hardened against XXE by default (`LIBXML_NONET`, see the security note further down).
+For untrusted input, also consider setting a size limit (see [Limiting input size](#limiting-input-size)).
 
 ## Requirements
 
@@ -265,6 +266,31 @@ If you need a temporary directory other than the system one:
 $converter->setTempDir('/writable/path');
 ```
 
+## Limiting input size
+
+By default the converters accept input of any size, so a very large JSON or XML document is only stopped by PHP's `memory_limit`. When the input comes from an untrusted source, set a limit in bytes:
+
+```php
+use A35G\JsonToXml\JsonToXmlConverter;
+use A35G\JsonToXml\XmlToJsonConverter;
+
+// Constructor argument (last parameter)...
+$toXml  = new JsonToXmlConverter(rootName: 'root', maxInputBytes: 1_048_576);   // 1 MiB
+$toJson = new XmlToJsonConverter(forceArrayTags: ['Nota'], maxInputBytes: 1_048_576);
+
+// ...or later, with the setter (null removes the limit)
+$toJson->setMaxInputBytes(2_097_152);
+```
+
+If the input is larger than the limit, an `InvalidArgumentException` is thrown **before** any parsing happens. An input exactly as large as the limit is accepted.
+
+Things to know:
+
+- The limit must be an integer >= 1, or `null` (no limit, the default). Any other value throws an `InvalidArgumentException`.
+- The limit applies to the **input** size, not to the memory actually used. Converting builds a DOM, then a PHP array, then the output string, so memory usage can be many times the input size (roughly 10-50x). For untrusted input, choose a conservative limit and make sure `memory_limit` can accommodate it.
+- `XmlToJsonConverter::xmlFileToJsonFile()` reads at most `limit + 1` bytes of the file, so huge files and endless streams (e.g. `/dev/zero`) are never loaded entirely into memory. If the limit is exceeded, the output file is not created or modified.
+- The limit covers the size of the string passed to the converter. It does not replace validation at the transport level (e.g. `post_max_size`, a request body cap in your web server).
+
 ## From XML to JSON: XmlToJsonConverter
 
 The library also includes the reverse process, through a separate class that shares the same conventions (`@attribute`, `#text`, lists of repeated elements).
@@ -328,9 +354,20 @@ In particular:
 - **Unicode**: Unicode characters are preserved during conversion.
 - **Entities**: references to entities declared in the DOCTYPE (in element content or attribute values) are rejected with an `InvalidArgumentException`. Predefined entities and character references work normally.
 
-For security, XML parsing uses `LIBXML_NONET`, preventing network access via external entities and mitigating XXE attacks when the XML comes from untrusted sources.
+### Security of XML parsing
 
-Entity-expansion attacks (Billion Laughs and similar) are covered by regression tests, but the protection comes from libxml2's own built-in limits, which the library leaves enabled (it never passes `LIBXML_NOENT` or `LIBXML_PARSEHUGE`). It therefore depends on the libxml2 version bundled with your PHP build, and the library does not enforce its own size or time limits. For fully untrusted input, add a size cap and a timeout on your side. See [SECURITY.md](SECURITY.md) for details.
+Parsing uses `LIBXML_NONET` (no network access for external entities) and deliberately **does not** enable `LIBXML_NOENT`, `LIBXML_DTDLOAD` or `LIBXML_PARSEHUGE`. Note that `LIBXML_NONET` alone does not block `file://`: reading local files through external entities is prevented because entities are never substituted. Entity references found in elements or attributes are rejected with an `InvalidArgumentException`.
+
+For untrusted input, reject DOCTYPE declarations altogether:
+
+```php
+$converter = new XmlToJsonConverter(allowDoctype: false, maxInputBytes: 1_048_576);
+// or later: $converter->setAllowDoctype(false);
+```
+
+With `allowDoctype: false`, any XML containing `<!DOCTYPE` is rejected **before** parsing. The check is textual, so a `<!DOCTYPE` inside a comment or CDATA section is rejected too. Inputs containing NUL bytes (e.g. UTF-16/32) are rejected in this mode. The default is `true` for backward compatibility.
+
+Entity-expansion attacks (Billion Laughs and similar) are covered by regression tests, but the protection comes from libxml2's own built-in limits, which the library leaves enabled (it never passes `LIBXML_NOENT` or `LIBXML_PARSEHUGE`). It therefore depends on the libxml2 version bundled with your PHP build. The library can cap the input size (see [Limiting input size](#limiting-input-size)) and reject DOCTYPE declarations outright (`allowDoctype: false`), but it does not enforce any time limit. For fully untrusted input, use both options and add a timeout on your side. See [SECURITY.md](SECURITY.md) for details.
 
 ## CLI
 
@@ -356,6 +393,10 @@ Options:
 | `--stylesheet=FILE` | `to-xml` | Add an `<?xml-stylesheet?>` processing instruction with this `href` |
 | `--stylesheet-type=TYPE` | `to-xml` | MIME type for `--stylesheet` (default `text/xsl`) |
 | `--force-array=Tag1,Tag2` | `to-json` | Tags always represented as JSON arrays |
+| `--max-bytes=N` | both | Maximum input size in bytes (default `16777216`, i.e. 16 MiB; `0` disables the limit) |
+| `--allow-doctype` | `to-json` | Accept XML with a DOCTYPE (rejected by default in the CLI; use only with trusted input) |
+
+Input larger than the limit is rejected with exit code `3`; an invalid `--max-bytes` value is a usage error (exit code `1`).
 
 Exit codes: `0` success, `1` invalid usage/unknown command, `2` I/O error, `3` invalid JSON/XML input, `4` internal conversion error.
 

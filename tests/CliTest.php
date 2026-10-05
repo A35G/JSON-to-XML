@@ -245,4 +245,61 @@ final class CliTest extends TestCase
             @rmdir($root);
         }
     }
+
+    public function testInputOverMaxBytesExitsWithInvalidInputCode(): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(['to-xml', '--max-bytes=5'], '{"nome":"Mario"}');
+
+        $this->assertSame(3, $exitCode);
+        $this->assertSame('', $stdout);
+        $this->assertStringContainsString('limite', $stderr);
+    }
+
+    public function testMaxBytesZeroDisablesTheLimit(): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(['to-xml', '--max-bytes=0'], '{"nome":"Mario"}');
+
+        $this->assertSame(0, $exitCode, "STDERR: {$stderr}");
+        $this->assertStringContainsString('<nome>Mario</nome>', $stdout);
+    }
+
+    /**
+     * @dataProvider invalidMaxBytesProvider
+     */
+    public function testInvalidMaxBytesValueIsAUsageError(string $value): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(['to-xml', '--max-bytes=' . $value], '{"a":"b"}');
+
+        $this->assertSame(1, $exitCode);
+        $this->assertSame('', $stdout);
+        $this->assertStringContainsString('--max-bytes', $stderr);
+    }
+
+    public static function invalidMaxBytesProvider(): array
+    {
+        return [['abc'], ['-5'], ['1.5'], ['']];
+    }
+
+    public function testToJsonRejectsDoctypeByDefault(): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(
+            ['to-json'],
+            '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY n "x">]><d><a>b</a></d>'
+        );
+
+        $this->assertSame(3, $exitCode);
+        $this->assertSame('', $stdout);
+        $this->assertStringContainsString('DOCTYPE', $stderr);
+    }
+
+    public function testToJsonAllowDoctypeFlagAcceptsDocuments(): void
+    {
+        [$exitCode, $stdout, $stderr] = $this->runCli(
+            ['to-json', '--allow-doctype'],
+            '<!DOCTYPE data><data><nome>Mario</nome></data>'
+        );
+
+        $this->assertSame(0, $exitCode, "STDERR: {$stderr}");
+        $this->assertSame('Mario', json_decode($stdout, true)['nome']);
+    }
 }

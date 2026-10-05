@@ -30,7 +30,8 @@ We will acknowledge your report as soon as possible and aim to provide a fix or 
 
 ### XML parsing (XmlToJsonConverter)
 
-- All XML parsing goes through `DOMDocument::loadXML()` with the **`LIBXML_NONET`** flag, which disables network access for external entities. This mitigates **XXE (XML External Entity)** attacks that attempt to read local files or make outbound requests (including SSRF against internal services, e.g. cloud metadata endpoints).
+- XML is parsed with `DOMDocument::loadXML()` and the flag **`LIBXML_NONET`**, which blocks network access for external entities (SSRF, e.g. cloud metadata endpoints). `LIBXML_NONET` does **not** block `file://`: protection against local file disclosure (XXE) comes from never enabling `LIBXML_NOENT`, so entities are not substituted. `LIBXML_DTDLOAD`, `LIBXML_DTDATTR`, `LIBXML_DTDVALID` and `LIBXML_PARSEHUGE` are also deliberately not used.
+- Entity references in elements and attributes are rejected. With `allowDoctype: false` (the default in the CLI), documents with a DOCTYPE are rejected before parsing.
 - This behavior is covered by regression tests in `LibraryIntegrityTest.php`:
   - `testExternalEntityIsNotResolvedIntoNodeText` — verifies that a `SYSTEM "file://..."` entity does not leak local file contents into the resulting array/JSON.
   - `testExternalEntityOverNetworkIsBlockedByLibxmlNonet` — verifies that a `SYSTEM "http://..."` entity does not trigger a network request or return remote content.
@@ -76,7 +77,7 @@ Please keep in mind:
 
 ### What this library does **not** protect against
 
-- **Resource exhaustion beyond libxml2's built-in limits**: the library does not implement its own limits on document size, nesting depth or parsing time, and relies on libxml2's built-in safeguards against entity expansion (see "Entity expansion" above), plus its own rejection of entity references. Plain large documents (e.g. hundreds of MB without any entities) are parsed as-is. If you process XML from a fully untrusted source where denial-of-service is a concern, add your own size cap before parsing and a request or execution timeout.
+- **Resource exhaustion**: the library relies on libxml2's built-in limits (nesting depth 256, 10 MB per text node, entity-expansion checks), which are version-dependent; regression tests cover billion-laughs, quadratic-blowup and depth payloads. For untrusted input, set `maxInputBytes`, set `allowDoctype: false`, and size `memory_limit` for the 10-50x memory amplification of DOM → array → JSON.
 - **Stylesheet `href` validation**: as described above, `setStylesheet()` does not validate or restrict the `href` value in any way beyond safe quoting. Treat it as a trusted, application-controlled setting, not as a place to forward untrusted input.
 - **Schema validation**: this library does not validate input JSON or XML against a schema. If your application requires structural guarantees beyond "well-formed," validate separately before or after conversion.
 - **Output encoding for other contexts**: the XML/JSON produced is safe as XML/JSON, but if you embed the output elsewhere (e.g. inside HTML), apply the appropriate escaping for that context.

@@ -1036,4 +1036,214 @@ final class LibraryIntegrityTest extends TestCase
 
         $this->assertSame('a & b < c A', $array['t']);
     }
+
+    // ------------------------------------------------------------------
+    // Limite di dimensione dell'input (difesa da DoS per esaurimento memoria)
+    // ------------------------------------------------------------------
+
+    public function testJsonInputExactlyAtLimitIsAcceptedAndOneByteOverIsRejected(): void
+    {
+        $json = '{"a":"b"}'; // 9 byte
+        $converter = new JsonToXmlConverter('data', 'item', true, 9);
+
+        $this->assertStringContainsString('<a>b</a>', $converter->jsonToXmlString($json));
+
+        $this->expectException(InvalidArgumentException::class);
+        (new JsonToXmlConverter('data', 'item', true, 8))->jsonToXmlString($json);
+    }
+
+    public function testXmlInputExactlyAtLimitIsAcceptedAndOneByteOverIsRejected(): void
+    {
+        $xml = '<d><a>b</a></d>'; // 15 byte
+        $ok = (new XmlToJsonConverter([], 15))->xmlToArray($xml);
+        $this->assertSame('b', $ok['a']);
+
+        $this->expectException(InvalidArgumentException::class);
+        (new XmlToJsonConverter([], 14))->xmlToArray($xml);
+    }
+
+    public function testNoLimitIsEnforcedByDefaultForBackwardCompatibility(): void
+    {
+        // null = comportamento storico: un input "grande" (qui 2 MB) passa.
+        $json = '{"a":"' . str_repeat('x', 2_000_000) . '"}';
+        $xml = (new JsonToXmlConverter('data'))->jsonToXmlString($json);
+
+        $this->assertSame(2_000_000, strlen((new XmlToJsonConverter())->xmlToArray($xml)['a']));
+    }
+
+    /**
+     * @dataProvider invalidLimitProvider
+     */
+    public function testInvalidLimitIsRejectedByBothConverters(int $limit): void
+    {
+        try {
+            new JsonToXmlConverter('data', 'item', true, $limit);
+            $this->fail('JsonToXmlConverter doveva rifiutare il limite non valido.');
+        } catch (InvalidArgumentException) {
+            // atteso
+        }
+
+        $this->expectException(InvalidArgumentException::class);
+        new XmlToJsonConverter([], $limit);
+    }
+
+    public static function invalidLimitProvider(): array
+    {
+        return [
+            'zero' => [0],
+            'negativo' => [-1],
+            'PHP_INT_MAX (max+1 andrebbe in overflow)' => [PHP_INT_MAX],
+        ];
+    }
+
+    public function testSettersApplyAndRemoveTheLimit(): void
+    {
+        $converter = new XmlToJsonConverter();
+        $converter->setMaxInputBytes(5);
+
+        try {
+            $converter->xmlToArray('<d><a>b</a></d>');
+            $this->fail('Ci si aspettava il rifiuto per superamento del limite.');
+        } catch (InvalidArgumentException) {
+            // atteso
+        }
+
+        $converter->setMaxInputBytes(null);
+        $this->assertSame('b', $converter->xmlToArray('<d><a>b</a></d>')['a']);
+    }
+
+    public function testOversizedXmlFileIsRejectedAndOutputFileIsNotWritten(): void
+    {
+        $inputFile = tempnam(sys_get_temp_dir(), 'xml_big_');
+        $outputPath = sys_get_temp_dir() . '/json_out_' . uniqid();
+
+        try {
+            file_put_contents($inputFile, '<d><a>' . str_repeat('x', 1000) . '</a></d>');
+
+            try {
+                (new XmlToJsonConverter([], 100))->xmlFileToJsonFile($inputFile, $outputPath);
+                $this->fail('Ci si aspettava il rifiuto del file troppo grande.');
+            } catch (InvalidArgumentException) {
+                // atteso
+            }
+
+            $this->assertFileDoesNotExist($outputPath);
+        } finally {
+            @unlink($inputFile);
+            @unlink($outputPath);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Sicurezza: rifiuto dei DOCTYPE (allowDoctype)
+    // ------------------------------------------------------------------
+
+    public function testDoctypeIsAllowedByDefaultForBackwardCompatibility(): void
+    {
+        $array = (new XmlToJsonConverter())->xmlToArray('<!DOCTYPE data><data><a>b</a></data>');
+
+        $this->assertSame('b', $array['a']);
+    }
+
+    /**
+     * @dataProvider doctypePayloadsProvider
+     */
+    public function testDoctypeIsRejectedWhenDisallowed(string $xml): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/DOCTYPE/');
+
+        (new XmlToJsonConverter(allowDoctype: false))->xmlToArray($xml);
+    }
+
+    public static function doctypePayloadsProvider(): array
+    {
+        return [
+            'doctype semplice' => ['<!DOCTYPE data><data><a>b</a></data>'],
+            'entità interna' => [
+                '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY n "Mario">]><d><a>x</a></d>',
+            ],
+            'entità esterna file://' => [
+                '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/hostname">]><d><a>x</a></d>',
+            ],
+            'doctype con DTD esterno' => [
+                '<?xml version="1.0"?><!DOCTYPE d SYSTEM "http://example.invalid/d.dtd"><d><a>x</a></d>',
+            ],
+        ];
+    }
+
+    public function testDoctypeRejectionHappensBeforeParsing(): void
+    {
+        // Se il rifiuto avvenisse dopo loadXML(), libxml2 avrebbe già
+        // elaborato il payload. In sottoprocesso, con timeout, così un
+        // eventuale regresso non blocca la suite.
+        $autoload = realpath(self::PROJECT_ROOT . '/vendor/autoload.php');
+        $this->assertNotFalse($autoload, 'vendor/autoload.php non trovato: eseguire composer install.');
+
+        $code = 'require ' . var_export($autoload, true) . ';'
+            . '$c = new A35G\JsonToXml\XmlToJsonConverter(allowDoctype: false);'
+            . 'try {'
+            . '  $c->xmlToArray((string) stream_get_contents(STDIN));'
+            . '  exit(0);'
+            . '} catch (InvalidArgumentException $e) {'
+            . '  echo $e->getMessage();'
+            . '  exit(3);'
+            . '}';
+
+        $result = $this->runPhpSubprocess($code, self::billionLaughsXml(10, 10), 10);
+
+        $this->assertFalse($result['timedOut']);
+        $this->assertSame(3, $result['exitCode'], 'STDERR: ' . $result['stderr']);
+        $this->assertStringContainsString('DOCTYPE', $result['stdout']);
+        $this->assertLessThan(2.0, $result['elapsed'], 'Il rifiuto dovrebbe essere immediato.');
+    }
+
+    public function testUtf16DocumentCannotBypassDoctypeCheck(): void
+    {
+        // In UTF-16 la stringa "<!DOCTYPE" non compare come sequenza di byte
+        // ASCII: senza il rifiuto dei byte NUL, il controllo testuale non
+        // scatterebbe e resterebbe solo quello post-parsing.
+        $xml = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE d [<!ENTITY n "x">]><d><a>b</a></d>';
+        $utf16 = "\xFF\xFE" . mb_convert_encoding($xml, 'UTF-16LE', 'UTF-8');
+
+        $this->expectException(InvalidArgumentException::class);
+
+        (new XmlToJsonConverter(allowDoctype: false))->xmlToArray($utf16);
+    }
+
+    public function testDocumentsWithoutDoctypeStillWorkWhenDoctypeIsDisallowed(): void
+    {
+        $converter = new XmlToJsonConverter(allowDoctype: false);
+
+        $array = $converter->xmlToArray('<?xml version="1.0"?><data a="1"><b>c &amp; d</b></data>');
+
+        $this->assertSame('1', $array['@a']);
+        $this->assertSame('c & d', $array['b']);
+    }
+
+    public function testDoctypeTextInsideCommentIsRejectedConservatively(): void
+    {
+        // Caratterizzazione: il controllo pre-parsing è testuale, quindi un
+        // "<!DOCTYPE" dentro un commento è rifiutato pur essendo innocuo.
+        // Falso positivo accettato in modalità restrittiva.
+        $this->expectException(InvalidArgumentException::class);
+
+        (new XmlToJsonConverter(allowDoctype: false))->xmlToArray('<d><!-- <!DOCTYPE --><a>b</a></d>');
+    }
+
+    public function testSetAllowDoctypeTogglesTheBehavior(): void
+    {
+        $converter = new XmlToJsonConverter(allowDoctype: false);
+        $xml = '<!DOCTYPE data><data><a>b</a></data>';
+
+        try {
+            $converter->xmlToArray($xml);
+            $this->fail('Ci si aspettava il rifiuto del DOCTYPE.');
+        } catch (InvalidArgumentException) {
+            // atteso
+        }
+
+        $converter->setAllowDoctype(true);
+        $this->assertSame('b', $converter->xmlToArray($xml)['a']);
+    }
 }

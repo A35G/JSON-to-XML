@@ -48,13 +48,47 @@ class XmlToJsonConverter
      *               anche quando compaiono una sola volta come figlio.
      */
     private array $forceArrayTags;
+    private ?int $maxInputBytes;
+    private bool $allowDoctype;
 
     /**
      * @param string[] $forceArrayTags Tag da trattare sempre come lista (vedi sopra).
+     * @param int|null $maxInputBytes  Dimensione massima (in byte) dell'XML accettato; null = nessun limite.
+     * @param bool     $allowDoctype   Se false, qualsiasi XML con una dichiarazione DOCTYPE viene
+     *                                 rifiutato prima del parsing (e le codifiche con byte NUL,
+     *                                 come UTF-16, non sono accettate). Consigliato per input
+     *                                 non fidato. Default true per retrocompatibilità.
      */
-    public function __construct(array $forceArrayTags = [])
-    {
+    public function __construct(
+        array $forceArrayTags = [],
+        ?int $maxInputBytes = null,
+        bool $allowDoctype = true
+    ) {
         $this->forceArrayTags = $forceArrayTags;
+        $this->maxInputBytes = self::assertValidLimit($maxInputBytes);
+        $this->allowDoctype = $allowDoctype;
+    }
+
+    public function setAllowDoctype(bool $allowDoctype): void
+    {
+        $this->allowDoctype = $allowDoctype;
+    }
+
+    /**
+     * @throws InvalidArgumentException se il limite non è un intero positivo valido
+     */
+    public function setMaxInputBytes(?int $maxInputBytes): void
+    {
+        $this->maxInputBytes = self::assertValidLimit($maxInputBytes);
+    }
+
+    private static function assertValidLimit(?int $limit): ?int
+    {
+        if ($limit !== null && ($limit < 1 || $limit > PHP_INT_MAX - 1)) {
+            throw new InvalidArgumentException('maxInputBytes deve essere un intero >= 1 oppure null.');
+        }
+
+        return $limit;
     }
 
     /**
@@ -125,7 +159,19 @@ class XmlToJsonConverter
             throw new InvalidArgumentException("Impossibile leggere il file XML: {$xmlFilePath}");
         }
 
-        $xmlString = file_get_contents($xmlFilePath);
+        // Lettura limitata a max+1 byte: basta per accorgersi dello sforamento
+        // (lo verifica loadXml()) senza caricare in memoria file enormi o
+        // stream infiniti (/dev/zero, FIFO), dove filesize() non è affidabile.
+        if ($this->maxInputBytes === null) {
+            $xmlString = file_get_contents($xmlFilePath);
+        } else {
+            // Il limite è già validato (1 <= limite <= PHP_INT_MAX - 1) da
+            // assertValidLimit(): "+ 1" non è mai negativo né va in overflow.
+            /** @var int<0, max> $length */
+            $length = $this->maxInputBytes + 1;
+            $xmlString = file_get_contents($xmlFilePath, false, null, 0, $length);
+        }
+
         if ($xmlString === false) {
             throw new InvalidArgumentException("Errore durante la lettura del file XML: {$xmlFilePath}");
         }
@@ -148,8 +194,18 @@ class XmlToJsonConverter
      */
     private function loadXml(string $xmlString): DOMDocument
     {
+        if ($this->maxInputBytes !== null && strlen($xmlString) > $this->maxInputBytes) {
+            throw new InvalidArgumentException(
+                sprintf('L\'XML supera il limite consentito di %d byte.', $this->maxInputBytes)
+            );
+        }
+
         if (trim($xmlString) === '') {
             throw new InvalidArgumentException('La stringa XML è vuota.');
+        }
+
+        if (!$this->allowDoctype) {
+            $this->assertNoDoctype($xmlString);
         }
 
         $dom = new DOMDocument();
@@ -158,7 +214,18 @@ class XmlToJsonConverter
         $previousSetting = libxml_use_internal_errors(true);
         libxml_clear_errors();
 
-        // LIBXML_NONET: impedisce il caricamento di risorse esterne via rete (mitigazione XXE/SSRF).
+        // FLAG DI PARSING: non modificare senza leggere SECURITY.md.
+        //
+        //  - LIBXML_NONET blocca solo l'accesso di rete (http://, ftp://). NON blocca
+        //    file://: la lettura di file locali via entità esterne è impedita
+        //    dall'assenza di LIBXML_NOENT, non da NONET.
+        //  - NON aggiungere LIBXML_NOENT: sostituirebbe le entità nel DOM, riaprendo
+        //    XXE (file://) e l'espansione billion laughs / quadratic blowup.
+        //  - NON aggiungere LIBXML_DTDLOAD / LIBXML_DTDATTR / LIBXML_DTDVALID: caricano
+        //    il DTD esterno e applicano i suoi attributi di default.
+        //  - NON aggiungere LIBXML_PARSEHUGE: disattiva i limiti di libxml2 su
+        //    profondità (256) e dimensione dei nodi di testo (10 MB), che oggi
+        //    proteggono anche la ricorsione di elementToValue()
         $loaded = $dom->loadXML($xmlString, LIBXML_NONET);
 
         $errors = libxml_get_errors();
@@ -174,7 +241,34 @@ class XmlToJsonConverter
             );
         }
 
+        if (!$this->allowDoctype && $dom->doctype !== null) {
+            throw new InvalidArgumentException('DOCTYPE non consentito.');
+        }
+
         return $dom;
+    }
+
+    /**
+     * Rifiuta il documento prima del parsing se potrebbe contenere un DOCTYPE.
+     *
+     * Il controllo è volutamente conservativo: un "<!DOCTYPE" dentro un commento
+     * o un CDATA viene rifiutato anch'esso. I byte NUL indicano UTF-16/32, dove
+     * la ricerca testuale non funzionerebbe: in modalità restrittiva sono rifiutati.
+     * Il controllo su $dom->doctype in loadXml() resta come seconda barriera.
+     *
+     * @throws InvalidArgumentException
+     */
+    private function assertNoDoctype(string $xmlString): void
+    {
+        if (str_contains($xmlString, "\0")) {
+            throw new InvalidArgumentException(
+                'Codifica non supportata con DOCTYPE disattivato (byte NUL: UTF-16/32?).'
+            );
+        }
+
+        if (str_contains($xmlString, '<!DOCTYPE')) {
+            throw new InvalidArgumentException('DOCTYPE non consentito.');
+        }
     }
 
     /**

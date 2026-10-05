@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Optional `maxInputBytes` limit (constructor argument and `setMaxInputBytes()`) on both converters, to reject oversized JSON/XML before parsing. Default `null` (no limit) keeps the library API backward compatible.
+- `XmlToJsonConverter`: `allowDoctype` constructor argument and `setAllowDoctype()`. When `false`, XML containing a DOCTYPE (or NUL bytes) is rejected before parsing. Default `true` (backward compatible).
+- CLI: `--max-bytes=N` option.
+- CLI: `--allow-doctype` option for `to-json`.
+
+### Changed
+- CLI: input is now limited to 16 MiB by default (use `--max-bytes=0` to disable).
+- CLI: `to-json` now rejects XML with a DOCTYPE by default (use `--allow-doctype` to restore the old behaviour).
+
+### Security
+- Documentation: clarified that `LIBXML_NONET` does not block `file://` and that local file protection relies on not using `LIBXML_NOENT`.
+
 ## [1.3.1] - 2026-10-04
 
 _Tag committed 2026-10-04 01:39:03 +0200; GitHub Release published 2026-10-04 01:42_
