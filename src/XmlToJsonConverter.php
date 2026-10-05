@@ -51,6 +51,8 @@ class XmlToJsonConverter
     private ?int $maxInputBytes;
     private bool $allowDoctype;
 
+    private ?string $baseDir = null;
+
     /**
      * @param string[] $forceArrayTags Tag da trattare sempre come lista (vedi sopra).
      * @param int|null $maxInputBytes  Dimensione massima (in byte) dell'XML accettato; null = nessun limite.
@@ -80,6 +82,18 @@ class XmlToJsonConverter
     public function setMaxInputBytes(?int $maxInputBytes): void
     {
         $this->maxInputBytes = self::assertValidLimit($maxInputBytes);
+    }
+
+    /**
+     * Confina in una directory i percorsi accettati da xmlFileToJsonFile()
+     * (null = nessun confinamento, comportamento predefinito). Vedi
+     * JsonToXmlConverter::setBaseDir() per i dettagli.
+     *
+     * @throws InvalidArgumentException se la directory non esiste
+     */
+    public function setBaseDir(?string $baseDir): void
+    {
+        $this->baseDir = FileGuard::normalizeBaseDir($baseDir);
     }
 
     private static function assertValidLimit(?int $limit): ?int
@@ -147,7 +161,7 @@ class XmlToJsonConverter
     /**
      * Legge un file XML e salva il JSON corrispondente su file.
      *
-     * @throws InvalidArgumentException se il file XML non è leggibile o non è valido
+     * @throws InvalidArgumentException se il file XML non è leggibile, non è valido o i percorsi non sono ammessi
      * @throws RuntimeException se il salvataggio del file JSON fallisce
      */
     public function xmlFileToJsonFile(
@@ -155,7 +169,10 @@ class XmlToJsonConverter
         string $jsonFilePath,
         int $jsonFlags = JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
     ): bool {
-        if (!is_readable($xmlFilePath)) {
+        $xmlPath = FileGuard::resolve($xmlFilePath, $this->baseDir, true);
+        $jsonPath = FileGuard::resolve($jsonFilePath, $this->baseDir, false);
+
+        if (!is_readable($xmlPath)) {
             throw new InvalidArgumentException("Impossibile leggere il file XML: {$xmlFilePath}");
         }
 
@@ -163,13 +180,13 @@ class XmlToJsonConverter
         // (lo verifica loadXml()) senza caricare in memoria file enormi o
         // stream infiniti (/dev/zero, FIFO), dove filesize() non è affidabile.
         if ($this->maxInputBytes === null) {
-            $xmlString = file_get_contents($xmlFilePath);
+            $xmlString = file_get_contents($xmlPath);
         } else {
             // Il limite è già validato (1 <= limite <= PHP_INT_MAX - 1) da
             // assertValidLimit(): "+ 1" non è mai negativo né va in overflow.
             /** @var int<0, max> $length */
             $length = $this->maxInputBytes + 1;
-            $xmlString = file_get_contents($xmlFilePath, false, null, 0, $length);
+            $xmlString = file_get_contents($xmlPath, false, null, 0, $length);
         }
 
         if ($xmlString === false) {
@@ -178,10 +195,7 @@ class XmlToJsonConverter
 
         $jsonString = $this->xmlToJsonString($xmlString, $jsonFlags);
 
-        $bytesWritten = file_put_contents($jsonFilePath, $jsonString);
-        if ($bytesWritten === false) {
-            throw new RuntimeException("Errore durante il salvataggio del file: {$jsonFilePath}");
-        }
+        FileGuard::writeAtomic($jsonPath, $jsonString);
 
         return true;
     }

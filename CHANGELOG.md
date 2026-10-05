@@ -12,13 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `XmlToJsonConverter`: `allowDoctype` constructor argument and `setAllowDoctype()`. When `false`, XML containing a DOCTYPE (or NUL bytes) is rejected before parsing. Default `true` (backward compatible).
 - CLI: `--max-bytes=N` option.
 - CLI: `--allow-doctype` option for `to-json`.
+- `setBaseDir()` on `JsonToXmlConverter` and `XmlToJsonConverter`: optional confinement of the file paths used by `jsonToXmlFile()` and `xmlFileToJsonFile()` to a directory (symlinks and `..` resolved with `realpath()`). Default: no restriction.
 
 ### Changed
 - CLI: input is now limited to 16 MiB by default (use `--max-bytes=0` to disable).
 - CLI: `to-json` now rejects XML with a DOCTYPE by default (use `--allow-doctype` to restore the old behaviour).
+- `jsonToXmlFile()` and `xmlFileToJsonFile()` now write atomically (temporary file in the destination directory + `rename()`): a failure no longer leaves a truncated file, and an existing destination is untouched. Observable differences: the destination directory must be writable; a symlink destination is replaced instead of followed; a hard link is broken; a file without write permission can be replaced if its directory is writable. New files keep the usual umask-based permissions and existing files keep theirs.
+- **Behavior change:** `jsonToXmlFile()` and `xmlFileToJsonFile()` now reject paths that are empty, contain NUL bytes or use a stream wrapper (`php://output`, `phar://`, `ftp://`, `file://`, `data:` ...) with an `InvalidArgumentException`. Use `jsonToXmlStdOut()` to print to the output.
 
 ### Security
 - Documentation: clarified that `LIBXML_NONET` does not block `file://` and that local file protection relies on not using `LIBXML_NOENT`.
+- File paths: stream wrappers and NUL bytes are rejected, writes no longer follow symlinks, and `setBaseDir()` provides opt-in path confinement. Documentation: file path handling and the atomic write described in README and SECURITY.md.
 
 ## [1.3.1] - 2026-10-04
 

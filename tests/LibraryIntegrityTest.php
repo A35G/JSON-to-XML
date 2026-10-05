@@ -8,6 +8,7 @@ use DOMDocument;
 use RuntimeException;
 use A35G\JsonToXml\JsonToXmlConverter;
 use A35G\JsonToXml\XmlToJsonConverter;
+use A35G\JsonToXml\FileGuard;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -1245,5 +1246,404 @@ final class LibraryIntegrityTest extends TestCase
 
         $converter->setAllowDoctype(true);
         $this->assertSame('b', $converter->xmlToArray($xml)['a']);
+    }
+
+    // ------------------------------------------------------------------
+    // File I/O: scrittura atomica, stream wrapper, baseDir
+    // ------------------------------------------------------------------
+
+    private function makeTempDir(): string
+    {
+        $dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'json_to_xml_io_' . uniqid('', true);
+        mkdir($dir, 0777, true);
+
+        $real = realpath($dir);
+        $this->assertNotFalse($real);
+
+        return $real;
+    }
+
+    private function removeDirectory(string $dir): void
+    {
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            $path = $dir . DIRECTORY_SEPARATOR . $entry;
+
+            if (is_link($path)) {
+                @unlink($path) || @rmdir($path);
+            } elseif (is_dir($path)) {
+                $this->removeDirectory($path);
+            } else {
+                @unlink($path);
+            }
+        }
+
+        @rmdir($dir);
+    }
+
+    /**
+     * @return string[]
+     */
+    private function listDirectory(string $dir): array
+    {
+        return array_values(array_diff(scandir($dir) ?: [], ['.', '..']));
+    }
+
+    public function testJsonToXmlFileReplacesExistingFileAndLeavesNoTemporaryFiles(): void
+    {
+        $dir = $this->makeTempDir();
+
+        try {
+            $target = $dir . DIRECTORY_SEPARATOR . 'out.xml';
+            file_put_contents($target, 'VECCHIO');
+
+            (new JsonToXmlConverter('data'))->jsonToXmlFile('{"nome":"Mario"}', $target);
+
+            $this->assertStringContainsString('<nome>Mario</nome>', (string) file_get_contents($target));
+            $this->assertSame(['out.xml'], $this->listDirectory($dir), 'Rimasto un file temporaneo xml_atomic_*.');
+        } finally {
+            $this->removeDirectory($dir);
+        }
+    }
+
+    public function testFailedWriteCleansUpTemporaryFile(): void
+    {
+        // La destinazione è una directory: il rename() fallisce DOPO la
+        // creazione del file temporaneo, che il blocco finally deve eliminare.
+        $dir = $this->makeTempDir();
+
+        try {
+            mkdir($dir . DIRECTORY_SEPARATOR . 'out.xml');
+
+            try {
+                (new JsonToXmlConverter('data'))->jsonToXmlFile('{"a":"b"}', $dir . DIRECTORY_SEPARATOR . 'out.xml');
+                $this->fail('Ci si aspettava una RuntimeException.');
+            } catch (RuntimeException) {
+                // atteso
+            }
+
+            $this->assertSame(['out.xml'], $this->listDirectory($dir));
+        } finally {
+            $this->removeDirectory($dir);
+        }
+    }
+
+    public function testInvalidJsonLeavesExistingDestinationUntouched(): void
+    {
+        $dir = $this->makeTempDir();
+
+        try {
+            $target = $dir . DIRECTORY_SEPARATOR . 'out.xml';
+            file_put_contents($target, 'ORIGINALE');
+
+            try {
+                (new JsonToXmlConverter('data'))->jsonToXmlFile('{json non valido}', $target);
+                $this->fail('Ci si aspettava una InvalidArgumentException.');
+            } catch (InvalidArgumentException) {
+                // atteso
+            }
+
+            $this->assertSame('ORIGINALE', file_get_contents($target));
+            $this->assertSame(['out.xml'], $this->listDirectory($dir));
+        } finally {
+            $this->removeDirectory($dir);
+        }
+    }
+
+    public function testNewFileGetsUmaskBasedPermissionsNotOwnerOnly(): void
+    {
+        // tempnam() crea file 0600: senza allineamento, ogni file scritto
+        // diventerebbe illeggibile per altri utenti (es. il web server).
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->markTestSkipped('I permessi POSIX non sono verificabili su Windows.');
+        }
+
+        $dir = $this->makeTempDir();
+        $oldUmask = umask(0022);
+
+        try {
+            $target = $dir . '/out.xml';
+            (new JsonToXmlConverter('data'))->jsonToXmlFile('{"a":"b"}', $target);
+
+            $this->assertSame(0644, fileperms($target) & 0777);
+        } finally {
+            umask($oldUmask);
+            $this->removeDirectory($dir);
+        }
+    }
+
+    public function testExistingFilePermissionsArePreservedOnOverwrite(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->markTestSkipped('I permessi POSIX non sono verificabili su Windows.');
+        }
+
+        $dir = $this->makeTempDir();
+
+        try {
+            $target = $dir . '/out.xml';
+            file_put_contents($target, 'VECCHIO');
+            chmod($target, 0640);
+
+            (new JsonToXmlConverter('data'))->jsonToXmlFile('{"a":"b"}', $target);
+
+            $this->assertSame(0640, fileperms($target) & 0777);
+        } finally {
+            $this->removeDirectory($dir);
+        }
+    }
+
+    public function testSymlinkDestinationIsReplacedNotFollowed(): void
+    {
+        $dir = $this->makeTempDir();
+
+        try {
+            $realFile = $dir . DIRECTORY_SEPARATOR . 'target.txt';
+            $link = $dir . DIRECTORY_SEPARATOR . 'link.xml';
+            file_put_contents($realFile, 'INTATTO');
+
+            if (!@symlink($realFile, $link)) {
+                $this->markTestSkipped('Impossibile creare symlink in questo ambiente.');
+            }
+
+            (new JsonToXmlConverter('data'))->jsonToXmlFile('{"a":"b"}', $link);
+
+            $this->assertSame('INTATTO', file_get_contents($realFile), 'Il file puntato dal symlink è stato modificato.');
+            $this->assertFalse(is_link($link));
+            $this->assertStringContainsString('<a>b</a>', (string) file_get_contents($link));
+        } finally {
+            $this->removeDirectory($dir);
+        }
+    }
+
+    /**
+     * @dataProvider streamWrapperPathsProvider
+     */
+    public function testStreamWrapperPathsAreRejectedForWriting(string $path): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new JsonToXmlConverter('data'))->jsonToXmlFile('{"a":"b"}', $path);
+    }
+
+    /**
+     * @dataProvider streamWrapperPathsProvider
+     */
+    public function testStreamWrapperPathsAreRejectedAsXmlInput(string $path): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new XmlToJsonConverter())->xmlFileToJsonFile($path, sys_get_temp_dir() . '/json_to_xml_never_' . uniqid());
+    }
+
+    /**
+     * @dataProvider streamWrapperPathsProvider
+     */
+    public function testStreamWrapperPathsAreRejectedAsJsonOutput(string $path): void
+    {
+        $input = (string) tempnam(sys_get_temp_dir(), 'xml_in_');
+
+        try {
+            file_put_contents($input, '<d><a>b</a></d>');
+
+            $this->expectException(InvalidArgumentException::class);
+            (new XmlToJsonConverter())->xmlFileToJsonFile($input, $path);
+        } finally {
+            @unlink($input);
+        }
+    }
+
+    public static function streamWrapperPathsProvider(): array
+    {
+        return [
+            'php://output' => ['php://output'],
+            'php://stdout' => ['php://stdout'],
+            'php://filter' => ['php://filter/write=string.rot13/resource=/tmp/x'],
+            'phar://' => ['phar:///tmp/x.phar/a.xml'],
+            'ftp://' => ['ftp://example.invalid/out.xml'],
+            'file://' => ['file:///tmp/out.xml'],
+            'schema maiuscolo' => ['FILE:///tmp/out.xml'],
+            'compress.zlib://' => ['compress.zlib:///tmp/out.xml'],
+            'data: URI' => ['data:text/plain,hello'],
+        ];
+    }
+
+    public function testPathsWithNulByteOrEmptyAreRejected(): void
+    {
+        $converter = new JsonToXmlConverter('data');
+
+        foreach (["out\0.xml", '', '   '] as $path) {
+            try {
+                $converter->jsonToXmlFile('{"a":"b"}', $path);
+                $this->fail('Ci si aspettava il rifiuto del percorso: ' . json_encode($path));
+            } catch (InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testDriveLettersAndOrdinaryPathsAreNotTreatedAsWrappers(): void
+    {
+        foreach (['C:\\temp\\out.xml', 'C:/temp/out.xml', '\\\\server\\share\\out.xml', 'dir/out.xml', './out.xml'] as $path) {
+            $this->assertSame($path, FileGuard::resolve($path, null, false));
+        }
+    }
+
+    public function testBaseDirAllowsPathsInsideAndRejectsPathsOutside(): void
+    {
+        $root = $this->makeTempDir();
+
+        try {
+            $base = $root . DIRECTORY_SEPARATOR . 'base';
+            mkdir($base);
+            mkdir($root . DIRECTORY_SEPARATOR . 'base_evil'); // stesso prefisso testuale
+
+            $converter = new JsonToXmlConverter('data');
+            $converter->setBaseDir($base);
+
+            $converter->jsonToXmlFile('{"a":"b"}', $base . DIRECTORY_SEPARATOR . 'ok.xml');
+            $this->assertFileExists($base . DIRECTORY_SEPARATOR . 'ok.xml');
+
+            $forbidden = [
+                $root . '/base_evil/x.xml',
+                $base . '/../outside.xml',
+                $root . '/outside.xml',
+                $base . '/..',
+            ];
+
+            foreach ($forbidden as $path) {
+                try {
+                    $converter->jsonToXmlFile('{"a":"b"}', $path);
+                    $this->fail("Percorso non rifiutato: {$path}");
+                } catch (InvalidArgumentException) {
+                    $this->addToAssertionCount(1);
+                }
+            }
+
+            $this->assertFileDoesNotExist($root . '/outside.xml');
+            $this->assertFileDoesNotExist($root . '/base_evil/x.xml');
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testBaseDirBlocksSymlinkThatEscapesTheDirectory(): void
+    {
+        $root = $this->makeTempDir();
+
+        try {
+            $base = $root . DIRECTORY_SEPARATOR . 'base';
+            $outside = $root . DIRECTORY_SEPARATOR . 'outside';
+            mkdir($base);
+            mkdir($outside);
+
+            if (!@symlink($outside, $base . DIRECTORY_SEPARATOR . 'link')) {
+                $this->markTestSkipped('Impossibile creare symlink in questo ambiente.');
+            }
+
+            $converter = new JsonToXmlConverter('data');
+            $converter->setBaseDir($base);
+
+            try {
+                $converter->jsonToXmlFile('{"a":"b"}', $base . DIRECTORY_SEPARATOR . 'link' . DIRECTORY_SEPARATOR . 'x.xml');
+                $this->fail('Il symlink che esce dalla directory base non è stato rifiutato.');
+            } catch (InvalidArgumentException) {
+                // atteso
+            }
+
+            $this->assertSame([], $this->listDirectory($outside));
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testBaseDirAppliesToXmlFileToJsonFileForReadingAndWriting(): void
+    {
+        $root = $this->makeTempDir();
+
+        try {
+            $base = $root . DIRECTORY_SEPARATOR . 'base';
+            mkdir($base);
+            file_put_contents($base . '/in.xml', '<d><a>b</a></d>');
+            file_put_contents($root . '/secret.xml', '<d><a>segreto</a></d>');
+
+            $converter = new XmlToJsonConverter();
+            $converter->setBaseDir($base);
+
+            $converter->xmlFileToJsonFile($base . '/in.xml', $base . '/out.json');
+            $this->assertSame('b', json_decode((string) file_get_contents($base . '/out.json'), true)['a']);
+
+            foreach (
+                [
+                [$root . '/secret.xml', $base . '/x.json'],
+                [$base . '/in.xml', $root . '/escaped.json'],
+                [$base . '/../secret.xml', $base . '/x.json'],
+                ] as [$in, $out]
+            ) {
+                try {
+                    $converter->xmlFileToJsonFile($in, $out);
+                    $this->fail("Percorso non rifiutato: {$in} -> {$out}");
+                } catch (InvalidArgumentException) {
+                    $this->addToAssertionCount(1);
+                }
+            }
+
+            $this->assertFileDoesNotExist($root . '/escaped.json');
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testSetBaseDirRejectsMissingDirectoryAndNullDisablesConfinement(): void
+    {
+        $dir = $this->makeTempDir();
+
+        try {
+            $converter = new JsonToXmlConverter('data');
+
+            try {
+                $converter->setBaseDir($dir . '/non-esiste');
+                $this->fail('Ci si aspettava il rifiuto di una directory base inesistente.');
+            } catch (InvalidArgumentException) {
+                // atteso
+            }
+
+            $other = $this->makeTempDir();
+
+            try {
+                $converter->setBaseDir($dir);
+                $converter->setBaseDir(null);
+                $converter->jsonToXmlFile('{"a":"b"}', $other . DIRECTORY_SEPARATOR . 'free.xml');
+
+                $this->assertFileExists($other . DIRECTORY_SEPARATOR . 'free.xml');
+            } finally {
+                $this->removeDirectory($other);
+            }
+        } finally {
+            $this->removeDirectory($dir);
+        }
+    }
+
+    public function testStdOutStillWorksWhenBaseDirIsSet(): void
+    {
+        // jsonToXmlStdOut() usa un file temporaneo di sistema, fuori da baseDir:
+        // non deve essere bloccato dal confinamento.
+        $dir = $this->makeTempDir();
+
+        try {
+            $converter = new JsonToXmlConverter('data');
+            $converter->setBaseDir($dir);
+
+            ob_start();
+            $converter->jsonToXmlStdOut('{"a":"b"}');
+            $output = (string) ob_get_clean();
+
+            $this->assertStringContainsString('<a>b</a>', $output);
+        } finally {
+            $this->removeDirectory($dir);
+        }
     }
 }

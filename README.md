@@ -46,7 +46,7 @@ Here's what that looks like in practice:
 ```
  
 One call, no manual `DOMDocument` wrangling, no wrapper elements around the repeated `note` nodes, and the XML parsing on the way back is hardened against XXE by default (`LIBXML_NONET`, see the security note further down).
-For untrusted input, also consider setting a size limit (see [Limiting input size](#limiting-input-size)).
+For untrusted input, also consider setting a size limit (see [Limiting input size](#limiting-input-size)) and rejecting DOCTYPE declarations (see [Security of XML parsing](#security-of-xml-parsing)).
 
 ## Requirements
 
@@ -266,6 +266,31 @@ If you need a temporary directory other than the system one:
 $converter->setTempDir('/writable/path');
 ```
 
+## File paths and atomic writes
+
+`jsonToXmlFile()` and `XmlToJsonConverter::xmlFileToJsonFile()` write their output **atomically**: the content goes to a temporary file in the destination directory, is flushed to disk and then renamed over the destination. If anything fails, an existing destination file is left untouched and no temporary file is left behind.
+
+Things to know:
+
+- The destination directory must be writable (not just the file itself), and it must already exist.
+- A new file gets the permissions `file_put_contents()` would give it (`0666` filtered by the umask); an existing file keeps its permissions.
+- A symlink used as destination is **replaced**, not followed, and a hard link is broken. A file without write permission can be replaced if its directory is writable.
+- Atomicity relies on `rename()` within one filesystem; on network filesystems the guarantees depend on the filesystem.
+
+Paths that are empty, contain NUL bytes or use a stream wrapper (`php://`, `phar://`, `ftp://`, `file://`, `data:` ...) are rejected with an `InvalidArgumentException`, for both reading and writing. To print the XML to the output, use `jsonToXmlStdOut()` instead of `php://output`.
+
+If paths come from user input, confine them to a directory:
+
+```php
+$converter = new JsonToXmlConverter();
+$converter->setBaseDir('/var/app/exports'); // null removes the restriction
+
+$converter->jsonToXmlFile($json, '/var/app/exports/report.xml'); // ok
+$converter->jsonToXmlFile($json, '/var/app/exports/../etc/x');   // InvalidArgumentException
+```
+
+`setBaseDir()` is available on both converters. Paths are resolved with `realpath()`, so `..` and symlinks pointing outside the directory are rejected; relative paths are resolved against the current working directory. It is a best-effort check: a short window remains between the check and the file operation, so don't rely on it where an attacker can modify the directory concurrently. The CLI options `--input` and `--output` are not restricted, because they are chosen by whoever runs the command (and the CLI writes its output without the atomic step).
+
 ## Limiting input size
 
 By default the converters accept input of any size, so a very large JSON or XML document is only stopped by PHP's `memory_limit`. When the input comes from an untrusted source, set a limit in bytes:
@@ -274,7 +299,7 @@ By default the converters accept input of any size, so a very large JSON or XML 
 use A35G\JsonToXml\JsonToXmlConverter;
 use A35G\JsonToXml\XmlToJsonConverter;
 
-// Constructor argument (last parameter)...
+// Constructor argument (named parameter)...
 $toXml  = new JsonToXmlConverter(rootName: 'root', maxInputBytes: 1_048_576);   // 1 MiB
 $toJson = new XmlToJsonConverter(forceArrayTags: ['Nota'], maxInputBytes: 1_048_576);
 
@@ -397,6 +422,7 @@ Options:
 | `--allow-doctype` | `to-json` | Accept XML with a DOCTYPE (rejected by default in the CLI; use only with trusted input) |
 
 Input larger than the limit is rejected with exit code `3`; an invalid `--max-bytes` value is a usage error (exit code `1`).
+A document with a DOCTYPE is rejected by `to-json` with exit code `3` unless `--allow-doctype` is given.
 
 Exit codes: `0` success, `1` invalid usage/unknown command, `2` I/O error, `3` invalid JSON/XML input, `4` internal conversion error.
 

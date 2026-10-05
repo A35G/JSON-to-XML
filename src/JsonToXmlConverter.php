@@ -56,6 +56,7 @@ class JsonToXmlConverter
     private ?int $maxInputBytes;
 
     protected ?string $tempdir = null;
+    private ?string $baseDir = null;
 
     /**
      * @param string $rootName      Nome del nodo radice del documento XML
@@ -110,6 +111,22 @@ class JsonToXmlConverter
     public function setTempDir(?string $tempdir = null): void
     {
         $this->tempdir = $tempdir;
+    }
+
+    /**
+     * Confina in una directory i percorsi accettati da jsonToXmlFile()
+     * (null = nessun confinamento, comportamento predefinito).
+     *
+     * Il percorso viene risolto con realpath(): ".." e symlink che escono dalla
+     * directory vengono rifiutati. I percorsi relativi sono risolti rispetto alla
+     * directory di lavoro corrente. jsonToXmlStdOut() non è interessato, perché
+     * usa solo file temporanei interni.
+     *
+     * @throws InvalidArgumentException se la directory non esiste
+     */
+    public function setBaseDir(?string $baseDir): void
+    {
+        $this->baseDir = FileGuard::normalizeBaseDir($baseDir);
     }
 
     /**
@@ -221,7 +238,7 @@ class JsonToXmlConverter
         $tempFile = $this->tempFilename();
 
         try {
-            $this->jsonToXmlFile($jsonString, $tempFile);
+            $this->writeXmlFile($jsonString, $tempFile, true);
             readfile($tempFile);
         } finally {
             // Fix del leak: il file temporaneo va sempre ripulito, non solo nel percorso "felice".
@@ -261,19 +278,30 @@ class JsonToXmlConverter
     }
 
     /**
-     * Converte il JSON e salva direttamente il risultato su file.
+     * Converte il JSON e salva il risultato su file, in modo atomico: in caso di
+     * errore un eventuale file preesistente non viene alterato.
      *
-     * @throws InvalidArgumentException se il JSON non è valido
+     * Rifiuta percorsi vuoti, con byte NUL o con stream wrapper (php://, phar://,
+     * ftp://, data: ...), e, se impostata con setBaseDir(), quelli fuori dalla
+     * directory base. Un symlink come destinazione viene sostituito, non seguito.
+     *
+     * @throws InvalidArgumentException se il JSON o il percorso non sono validi
      * @throws RuntimeException se il salvataggio del file fallisce
      */
     public function jsonToXmlFile(string $jsonString, string $fileName, bool $prettyPrint = true): bool
     {
-        $xmlString = $this->jsonToXmlString($jsonString, $prettyPrint);
+        $path = FileGuard::resolve($fileName, $this->baseDir, false);
 
-        $bytesWritten = file_put_contents($fileName, $xmlString);
-        if ($bytesWritten === false) {
-            throw new RuntimeException("Errore durante il salvataggio del file: {$fileName}");
-        }
+        return $this->writeXmlFile($jsonString, $path, $prettyPrint);
+    }
+
+    /**
+     * Converte e scrive senza validare il percorso: usato anche per i file
+     * temporanei interni di jsonToXmlStdOut(), che stanno fuori da baseDir.
+     */
+    private function writeXmlFile(string $jsonString, string $path, bool $prettyPrint): bool
+    {
+        FileGuard::writeAtomic($path, $this->jsonToXmlString($jsonString, $prettyPrint));
 
         return true;
     }
